@@ -5,6 +5,10 @@
   "version": "2.1.0",
   "description": "Executive Life OS - Planner, Calendar, Goals & AI",
   "author": "OmniPlan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RhyGPU/Planner"
+  },
   "type": "module",
   "main": "electron-main.cjs",
   "scripts": {
