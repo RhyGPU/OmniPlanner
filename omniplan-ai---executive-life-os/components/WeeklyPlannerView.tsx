@@ -297,9 +297,9 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                               <div className="flex justify-between items-center px-0.5">
                                 <div className="flex items-center gap-2 flex-1">
                                   <span className="text-[11px] font-black text-slate-800 tracking-tight truncate">{habit.name}</span>
-                                  <span title={`Current: ${streak.current} • Longest: ${streak.longest} • Days: ${streak.totalDays} • ${streak.percentageComplete}%`} className="text-[11px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full flex items-center gap-2">
-                                    <Flame size={12} className="text-amber-500"/>
-                                    <span className="text-[10px]">{streak.current}</span>
+                                  <span title={`${streak.totalDays}/7 days this week • Best streak: ${streak.longest} • ${streak.percentageComplete}%`} className="text-[11px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full flex items-center gap-2">
+                                    <Flame size={12} className={streak.totalDays >= 5 ? 'text-orange-500' : streak.totalDays >= 3 ? 'text-amber-500' : 'text-slate-400'}/>
+                                    <span className="text-[10px]">{streak.totalDays}/7</span>
                                   </span>
                                 </div>
                                 <button onClick={(e) => removeHabit(habit.id, e)} className={`${isMobile ? 'opacity-100' : 'opacity-0 group-hover/habit:opacity-100'} text-slate-300 hover:text-red-500 transition-all p-1`}>
@@ -349,7 +349,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         {weekDates.map((date, idx) => {
                         const isToday = new Date().toDateString() === date.toDateString();
                         return (
-                            <div key={idx} className="flex-1 min-w-[160px] flex flex-col border-r border-slate-200 last:border-r-0">
+                            <div key={idx} className="flex-1 min-w-[200px] flex flex-col border-r border-slate-200 last:border-r-0">
                                 <div className={`h-16 px-4 py-3 flex items-center justify-between border-b border-slate-100 ${isToday ? 'bg-blue-600 text-white' : 'bg-white'}`}>
                                     <div>
                                         <div className={`text-[9px] font-black uppercase tracking-widest ${isToday ? 'text-blue-100' : 'text-slate-400'}`}>{DAYS[idx]}</div>
@@ -368,7 +368,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         const dateKey = formatDateKey(date);
                         const dayPlan = currentWeek.dailyPlans[dateKey];
                         return (
-                            <div key={idx} className="flex-1 min-w-[160px] border-r border-slate-200 last:border-r-0 flex flex-col">
+                            <div key={idx} className="flex-1 min-w-[200px] border-r border-slate-200 last:border-r-0 flex flex-col">
                                 <div className="p-6 bg-gradient-to-br from-blue-50/20 via-white to-white border-b border-slate-100 min-h-[160px]">
                                     <div className="flex items-center gap-2 mb-4">
                                         <div className="w-1.5 h-4 bg-blue-600 rounded-full"></div>
@@ -413,7 +413,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         const dayPlan = currentWeek.dailyPlans[dateKey];
                         
                         return (
-                            <div key={idx} className="flex-1 min-w-[160px] border-r border-slate-200 last:border-r-0 relative bg-white/40" style={{ height: `${24 * PIXELS_PER_HOUR}px` }}>
+                            <div key={idx} className="flex-1 min-w-[200px] border-r border-slate-200 last:border-r-0 relative bg-white/40" style={{ height: `${24 * PIXELS_PER_HOUR}px` }}>
                                 {generateTimeSlots().map((hour) => (
                                     <div 
                                         key={hour} 

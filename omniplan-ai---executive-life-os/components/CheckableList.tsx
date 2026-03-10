@@ -76,23 +76,23 @@ export const CheckableList: React.FC<CheckableListProps> = ({
   };
 
   return (
-    <div className="space-y-4 w-full pr-1">
+    <div className="space-y-3 w-full">
       {items.map((item, index) => (
-        <div key={item.id} className="flex items-start gap-2 group animate-in slide-in-from-left-2 duration-200 w-full">
+        <div key={item.id} className="flex items-start gap-1.5 group animate-in slide-in-from-left-2 duration-200 w-full relative">
           <button
             onClick={() => {
               const newItems = [...items];
               newItems[index].done = !newItems[index].done;
               onChange(newItems);
             }}
-            className={`mt-1.5 w-5 h-5 rounded-md flex items-center justify-center transition-all flex-shrink-0 cursor-pointer shadow-sm ${
+            className={`mt-1 w-4 h-4 rounded flex items-center justify-center transition-all flex-shrink-0 cursor-pointer ${
               item.done ? 'bg-slate-400 text-white' : 'border-2 border-slate-300 hover:border-blue-500 bg-white'
             }`}
           >
-            {item.done ? <CheckSquare size={14} /> : null}
+            {item.done ? <CheckSquare size={12} /> : null}
           </button>
-          
-          <div className="flex-1 min-w-0">
+
+          <div className="flex-1 min-w-0 overflow-hidden">
             <AutoSizeTextarea
                 value={item.text}
                 onChange={(e) => {
@@ -103,24 +103,24 @@ export const CheckableList: React.FC<CheckableListProps> = ({
                 onKeyDown={(e) => handleKeyDown(e, index)}
                 placeholder={placeholder}
                 disabled={false}
-                className={`w-full min-w-0 bg-transparent border-none p-0 focus:outline-none focus:ring-0 text-sm font-medium leading-relaxed resize-none block ${
+                className={`w-full bg-transparent border-none p-0 focus:outline-none focus:ring-0 text-xs font-medium leading-relaxed resize-none block ${
                   item.done ? 'line-through text-slate-400' : colorClass
                 }`}
-                style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
+                style={{ overflowWrap: 'break-word', wordBreak: 'break-word', maxWidth: '100%' }}
             />
           </div>
 
-          <button 
-            onClick={() => onChange(items.filter((_, i) => i !== index))} 
-            className="mt-1 text-slate-300 hover:text-red-500 transition-colors flex-shrink-0 cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+          <button
+            onClick={() => onChange(items.filter((_, i) => i !== index))}
+            className="mt-0.5 text-slate-300 hover:text-red-500 transition-colors flex-shrink-0 cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
           >
-            <X size={16} />
+            <X size={12} />
           </button>
         </div>
       ))}
       <button 
         onClick={onAdd} 
-        className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-blue-600 mt-4 ml-8 transition-colors uppercase tracking-wider cursor-pointer py-2"
+        className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 hover:text-blue-600 mt-3 ml-5 transition-colors uppercase tracking-wider cursor-pointer py-1"
       >
         <Plus size={14} /> Add Task
       </button>

@@ -16,12 +16,18 @@ import { AIProvider, AIProviderID } from './types';
 import { createGeminiProvider } from './gemini';
 import { createOpenAIProvider } from './openai';
 import { createAnthropicProvider } from './anthropic';
+import { createOpenAICompatibleProvider } from './openai-compatible';
 import { getAISettings } from '../settings';
 
 function getProvider(): AIProvider | null {
-  const { provider, apiKey } = getAISettings();
+  const { provider, apiKey, customEndpoint, customModel } = getAISettings();
 
-  if (provider === 'none' || !apiKey) {
+  if (provider === 'none') {
+    return null;
+  }
+
+  // Custom and OpenRouter don't strictly require an API key (local models)
+  if (!apiKey && provider !== 'custom') {
     return null;
   }
 
@@ -32,6 +38,22 @@ function getProvider(): AIProvider | null {
       return createOpenAIProvider(apiKey);
     case 'anthropic':
       return createAnthropicProvider(apiKey);
+    case 'openrouter':
+      return createOpenAICompatibleProvider({
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey,
+        model: customModel || 'meta-llama/llama-3.1-8b-instruct:free',
+        extraHeaders: {
+          'HTTP-Referer': 'https://omniplan.app',
+          'X-Title': 'OmniPlan AI',
+        },
+      });
+    case 'custom':
+      return createOpenAICompatibleProvider({
+        baseUrl: customEndpoint || 'http://localhost:1234/v1',
+        apiKey: apiKey || '',
+        model: customModel || 'default',
+      });
     default:
       return null;
   }
