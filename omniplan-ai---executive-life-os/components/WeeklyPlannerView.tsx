@@ -18,10 +18,11 @@ interface WeeklyPlannerProps {
   currentWeek: WeekData;
   updateCurrentWeek: (week: WeekData) => void;
   setAiLoading: (loading: boolean) => void;
+  onDeleteHabit: (habitId: string) => void;
 }
 
 export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
-  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading
+  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit
 }) => {
   const weekDates = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const [eventEditor, setEventEditor] = useState<any>(null);
@@ -124,13 +125,9 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   const removeHabit = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (window.confirm("Delete this habit?")) {
-      const habit = currentWeek.habits.find(h => h.id === id);
-      if (habit) {
-        const deletedHabit = deleteHabitFromWeek(habit, currentWeek.weekStartDate);
-        const updatedHabits = currentWeek.habits.map(h => h.id === id ? deletedHabit : h);
-        updateCurrentWeek({ ...currentWeek, habits: updatedHabits });
-      }
+    if (window.confirm("Delete this habit from this week and all future weeks?")) {
+      // Delete globally across all weeks (current + future)
+      onDeleteHabit(id);
     }
   }, [currentWeek, updateCurrentWeek]);
 
