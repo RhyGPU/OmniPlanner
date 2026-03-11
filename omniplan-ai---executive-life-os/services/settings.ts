@@ -8,6 +8,8 @@ import { AIProviderID } from './ai/types';
 export interface AISettings {
   provider: AIProviderID;
   apiKey: string;
+  customEndpoint?: string;
+  customModel?: string;
 }
 
 const SETTINGS_KEY = 'omni_ai_settings';
@@ -20,6 +22,8 @@ export function getAISettings(): AISettings {
       return {
         provider: parsed.provider || 'none',
         apiKey: parsed.apiKey || '',
+        customEndpoint: parsed.customEndpoint || '',
+        customModel: parsed.customModel || '',
       };
     }
   } catch {

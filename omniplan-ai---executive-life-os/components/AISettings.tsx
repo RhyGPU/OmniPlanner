@@ -1,30 +1,34 @@
 
 import React, { useState, useEffect } from 'react';
-import { Brain, Eye, EyeOff, ExternalLink, CheckCircle } from 'lucide-react';
+import { Brain, Eye, EyeOff, ExternalLink, CheckCircle, Server } from 'lucide-react';
 import { AIProviderID, AI_PROVIDERS } from '../services/ai/types';
 import { getAISettings, saveAISettings } from '../services/settings';
 
 export const AISettings: React.FC = () => {
   const [provider, setProvider] = useState<AIProviderID>('none');
   const [apiKey, setApiKey] = useState('');
+  const [customEndpoint, setCustomEndpoint] = useState('');
+  const [customModel, setCustomModel] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Load settings on mount
   useEffect(() => {
     const settings = getAISettings();
     setProvider(settings.provider);
     setApiKey(settings.apiKey);
+    setCustomEndpoint(settings.customEndpoint || '');
+    setCustomModel(settings.customModel || '');
   }, []);
 
   const handleSave = () => {
-    saveAISettings({ provider, apiKey: apiKey.trim() });
+    saveAISettings({ provider, apiKey: apiKey.trim(), customEndpoint: customEndpoint.trim(), customModel: customModel.trim() });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
   const currentInfo = AI_PROVIDERS[provider];
   const providerList = Object.values(AI_PROVIDERS);
+  const showEndpointFields = provider === 'openrouter' || provider === 'custom';
 
   return (
     <div className="bg-white rounded-[2.5rem] border-2 border-slate-50 p-10">
@@ -39,7 +43,7 @@ export const AISettings: React.FC = () => {
       </div>
 
       {/* Provider Selection */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
         {providerList.map((info) => (
           <button
             key={info.id}
@@ -62,12 +66,13 @@ export const AISettings: React.FC = () => {
         ))}
       </div>
 
-      {/* API Key Input */}
+      {/* Configuration Fields */}
       {provider !== 'none' && (
-        <div className="space-y-4">
+        <div className="space-y-5">
+          {/* API Key */}
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
-              {currentInfo.name} API Key
+              {currentInfo.name} API Key {provider === 'custom' && '(optional for local)'}
             </label>
             <div className="relative">
               <input
@@ -89,6 +94,49 @@ export const AISettings: React.FC = () => {
             </p>
           </div>
 
+          {/* Custom Endpoint URL (for OpenRouter and Custom) */}
+          {showEndpointFields && (
+            <>
+              {provider === 'custom' && (
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
+                    API Endpoint URL
+                  </label>
+                  <div className="relative">
+                    <Server size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"/>
+                    <input
+                      type="text"
+                      value={customEndpoint}
+                      onChange={(e) => setCustomEndpoint(e.target.value)}
+                      placeholder="http://localhost:1234/v1"
+                      className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl pl-11 pr-5 py-4 text-sm font-mono font-bold focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all"
+                    />
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 mt-2">
+                    LM Studio: http://localhost:1234/v1 &nbsp;&nbsp; Ollama: http://localhost:11434/v1
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
+                  Model Name
+                </label>
+                <input
+                  type="text"
+                  value={customModel}
+                  onChange={(e) => setCustomModel(e.target.value)}
+                  placeholder={provider === 'openrouter' ? 'meta-llama/llama-3.1-8b-instruct:free' : 'default'}
+                  className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm font-mono font-bold focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all"
+                />
+                <p className="text-[10px] font-bold text-slate-400 mt-2">
+                  {provider === 'openrouter' && 'Browse models at openrouter.ai/models — many free models available.'}
+                  {provider === 'custom' && 'The model ID loaded in your local server. Leave as "default" for auto-detect.'}
+                </p>
+              </div>
+            </>
+          )}
+
           {currentInfo.docsUrl && (
             <a
               href={currentInfo.docsUrl}
@@ -96,7 +144,6 @@ export const AISettings: React.FC = () => {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-xs font-black text-indigo-600 hover:text-indigo-800 transition-colors"
               onClick={(e) => {
-                // In Electron, open in external browser
                 e.preventDefault();
                 if ((window as any).electronAPI?.openExternal) {
                   (window as any).electronAPI.openExternal(currentInfo.docsUrl);

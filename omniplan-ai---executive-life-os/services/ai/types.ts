@@ -3,7 +3,7 @@
  * Add new providers by implementing the AIProvider interface.
  */
 
-export type AIProviderID = 'gemini' | 'openai' | 'anthropic' | 'none';
+export type AIProviderID = 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'custom' | 'none';
 
 export interface AIProviderInfo {
   id: AIProviderID;
@@ -49,6 +49,20 @@ export const AI_PROVIDERS: Record<AIProviderID, AIProviderInfo> = {
     description: 'Claude models. Requires API key.',
     apiKeyPlaceholder: 'sk-ant-...',
     docsUrl: 'https://console.anthropic.com/settings/keys',
+  },
+  openrouter: {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    description: 'Access 100+ open-source & commercial models.',
+    apiKeyPlaceholder: 'sk-or-...',
+    docsUrl: 'https://openrouter.ai/keys',
+  },
+  custom: {
+    id: 'custom',
+    name: 'Local / Custom',
+    description: 'LM Studio, Ollama, or any OpenAI-compatible API.',
+    apiKeyPlaceholder: 'optional (leave blank for local)',
+    docsUrl: '',
   },
   none: {
     id: 'none',

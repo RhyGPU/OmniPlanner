@@ -75,6 +75,27 @@ export default function App() {
     setActiveTab(Tab.Weekly);
   }, []);
 
+  // Delete a habit from the current week AND all future weeks
+  const deleteHabitGlobally = useCallback((habitId: string) => {
+    const now = Date.now();
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      for (const weekKey of Object.keys(updated)) {
+        const week = updated[weekKey];
+        if (week.habits?.some(h => h.id === habitId && !h.deletedAt)) {
+          updated[weekKey] = {
+            ...week,
+            habits: week.habits.map(h =>
+              h.id === habitId ? { ...h, deletedAt: now } : h
+            ),
+            updatedAt: now,
+          };
+        }
+      }
+      return updated;
+    });
+  }, []);
+
   const handleSaveData = useCallback(() => {
     downloadBackup();
   }, []);
@@ -116,12 +137,13 @@ export default function App() {
             />
           )}
           {activeTab === Tab.Weekly && (
-            <WeeklyPlannerView 
-              currentDate={currentDate} 
-              setCurrentDate={setCurrentDate} 
+            <WeeklyPlannerView
+              currentDate={currentDate}
+              setCurrentDate={setCurrentDate}
               currentWeek={currentWeek}
               updateCurrentWeek={updateCurrentWeek}
               setAiLoading={setAiLoading}
+              onDeleteHabit={deleteHabitGlobally}
             />
           )}
           {activeTab === Tab.Goals && <GoalsView lifeGoals={lifeGoals} setLifeGoals={setLifeGoals} />}
