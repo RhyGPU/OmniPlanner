@@ -1,7 +1,15 @@
-const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
+
+// Pre-configured IMAP hosts for known providers
+const IMAP_HOSTS = {
+  gmail: { host: 'imap.gmail.com', port: 993 },
+  outlook: { host: 'outlook.office365.com', port: 993 },
+  yahoo: { host: 'imap.mail.yahoo.com', port: 993 },
+  naver: { host: 'imap.naver.com', port: 993 },
+};
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -19,30 +27,13 @@ function createWindow() {
     },
   });
 
-  // Remove the default menu bar but keep zoom shortcuts working
+  // Remove the default menu bar
   win.setMenuBarVisibility(false);
-
-  // Enable Ctrl+= / Ctrl+- / Ctrl+0 zoom shortcuts
-  win.webContents.on('before-input-event', (event, input) => {
-    if (input.control || input.meta) {
-      if (input.key === '=' || input.key === '+') {
-        win.webContents.setZoomLevel(win.webContents.getZoomLevel() + 0.5);
-        event.preventDefault();
-      } else if (input.key === '-') {
-        win.webContents.setZoomLevel(win.webContents.getZoomLevel() - 0.5);
-        event.preventDefault();
-      } else if (input.key === '0') {
-        win.webContents.setZoomLevel(0);
-        event.preventDefault();
-      }
-    }
-  });
 
   if (DEV_URL) {
     win.loadURL(DEV_URL);
     win.webContents.openDevTools();
   } else {
-    // In production, load from dist folder with relative paths
     const indexPath = path.join(__dirname, 'dist', 'index.html');
     win.loadFile(indexPath);
   }
@@ -60,4 +51,102 @@ app.on('activate', () => {
 
 ipcMain.on('quit-app', () => {
   app.quit();
+});
+
+// Email IMAP handlers
+ipcMain.handle('email:fetch', async (_event, account) => {
+  try {
+    const { ImapFlow } = require('imapflow');
+    const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+
+    const client = new ImapFlow({
+      host: hostConfig.host,
+      port: hostConfig.port,
+      secure: true,
+      auth: { user: account.email, pass: account.password },
+      logger: false,
+    });
+
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
+    const emails = [];
+
+    try {
+      // Fetch last 50 emails
+      const totalMessages = client.mailbox.exists;
+      const startSeq = Math.max(1, totalMessages - 49);
+
+      for await (const message of client.fetch(`${startSeq}:*`, {
+        envelope: true,
+        uid: true,
+        flags: true,
+      })) {
+        emails.push({
+          uid: message.uid,
+          subject: message.envelope.subject || '(No subject)',
+          sender: message.envelope.from?.[0]?.name || message.envelope.from?.[0]?.address || 'Unknown',
+          senderEmail: message.envelope.from?.[0]?.address || '',
+          date: message.envelope.date?.toISOString() || '',
+          read: message.flags.has('\\Seen'),
+          preview: '',
+        });
+      }
+    } finally {
+      lock.release();
+    }
+
+    await client.logout();
+    return { success: true, emails: emails.reverse() };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
+  try {
+    const { ImapFlow } = require('imapflow');
+    const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+
+    const client = new ImapFlow({
+      host: hostConfig.host,
+      port: hostConfig.port,
+      secure: true,
+      auth: { user: account.email, pass: account.password },
+      logger: false,
+    });
+
+    await client.connect();
+    const lock = await client.getMailboxLock('INBOX');
+
+    let body = '';
+    try {
+      const message = await client.fetchOne(uid, { source: true }, { uid: true });
+      if (message?.source) {
+        // Simple text extraction from raw email source
+        const source = message.source.toString();
+        // Try to extract plain text body
+        const textMatch = source.match(/Content-Type:\s*text\/plain[\s\S]*?\r\n\r\n([\s\S]*?)(?:\r\n--|\r\n\.\r\n|$)/i);
+        if (textMatch) {
+          body = textMatch[1].replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+        } else {
+          // Fallback: strip HTML tags
+          const htmlMatch = source.match(/Content-Type:\s*text\/html[\s\S]*?\r\n\r\n([\s\S]*?)(?:\r\n--|\r\n\.\r\n|$)/i);
+          if (htmlMatch) {
+            body = htmlMatch[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          } else {
+            // Last resort: everything after headers
+            const headerEnd = source.indexOf('\r\n\r\n');
+            body = headerEnd > -1 ? source.substring(headerEnd + 4) : source;
+          }
+        }
+      }
+    } finally {
+      lock.release();
+    }
+
+    await client.logout();
+    return { success: true, body };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });

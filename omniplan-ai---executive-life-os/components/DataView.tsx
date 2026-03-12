@@ -3,6 +3,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import { Download, Upload, Database, ShieldCheck, FileJson, Calendar as CalendarIcon, FileUp, CheckCircle, AlertCircle } from 'lucide-react';
 import { clearAllData } from '../utils/dataManager';
 import { AISettings } from './AISettings';
+import { EmailSettings } from './EmailSettings';
 
 interface DataViewProps {
   handleSaveData: () => void;
@@ -67,6 +68,11 @@ export const DataView: React.FC<DataViewProps> = ({
             {/* AI Provider Settings */}
             <div className="mb-12">
                 <AISettings />
+            </div>
+
+            {/* Email Account Settings */}
+            <div className="mb-12">
+                <EmailSettings />
             </div>
 
             <div className="grid md:grid-cols-2 gap-10 mb-10">

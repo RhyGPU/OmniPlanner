@@ -74,6 +74,17 @@ export interface WeekData {
   updatedAt: number;
 }
 
+export interface EmailAccount {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  provider: 'gmail' | 'outlook' | 'yahoo' | 'naver' | 'custom';
+  imapHost?: string;
+  imapPort?: number;
+  enabled: boolean;
+}
+
 export enum Tab {
   Inbox = 'email',
   Monthly = 'monthly',
