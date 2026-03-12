@@ -1,5 +1,5 @@
-﻿
-import React, { useState, useEffect, useCallback } from 'react';
+
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { EmailView } from './components/EmailView';
@@ -7,19 +7,57 @@ import { MonthlyView } from './components/MonthlyView';
 import { WeeklyPlannerView } from './components/WeeklyPlannerView';
 import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
-import { Tab, Email, LifeGoals, WeekData } from './types';
+import { Tab, Email, LifeGoals, WeekData, CalendarEvent } from './types';
 import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
+import { formatDateKey } from './constants';
 
 const INITIAL_EMAILS: Email[] = [
   { id: 1, provider: 'internal', sender: "OmniPlan Core", subject: "Executive System Ready", preview: "Your dashboard is ready...", body: "Welcome to OmniPlan!\n\nThis system is designed for high-performance scheduling. Your weekly planner, monthly overview, and life vision board are now active.\n\nUse the 'AI Optimize Week' feature to automatically generate focus themes based on your historical data and current tasks.\n\nBest,\nOmniPlan Team", time: "09:00 AM", read: false },
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>(Tab.Weekly); 
+  const [activeTab, setActiveTab] = useState<Tab>(Tab.Weekly);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [aiLoading, setAiLoading] = useState(false);
-  
+
+  // Per-tab zoom levels
+  const [zoomLevels, setZoomLevels] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem('omni_zoom_levels');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  const currentZoom = zoomLevels[activeTab] || 1.0;
+  const currentZoomPercent = Math.round(currentZoom * 100);
+
+  const handleZoomIn = useCallback(() => {
+    setZoomLevels(prev => {
+      const current = prev[activeTab] || 1.0;
+      const next = Math.min(current + 0.1, 2.0);
+      const updated = { ...prev, [activeTab]: next };
+      localStorage.setItem('omni_zoom_levels', JSON.stringify(updated));
+      return updated;
+    });
+  }, [activeTab]);
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevels(prev => {
+      const current = prev[activeTab] || 1.0;
+      const next = Math.max(current - 0.1, 0.5);
+      const updated = { ...prev, [activeTab]: next };
+      localStorage.setItem('omni_zoom_levels', JSON.stringify(updated));
+      return updated;
+    });
+  }, [activeTab]);
+
+  const handleZoomReset = useCallback(() => {
+    setZoomLevels(prev => {
+      const updated = { ...prev, [activeTab]: 1.0 };
+      localStorage.setItem('omni_zoom_levels', JSON.stringify(updated));
+      return updated;
+    });
+  }, [activeTab]);
+
   // All weeks data - central source of truth
   const [allWeeks, setAllWeeks] = useState<Record<string, WeekData>>(() => {
     return getAllWeeks();
@@ -27,7 +65,7 @@ export default function App() {
 
   // Current week data (derived from allWeeks)
   const currentWeek = getOrCreateWeek(currentDate, allWeeks);
-  
+
   // Persistent State Management
   const [emails, setEmails] = useState<Email[]>(() => {
     const saved = localStorage.getItem('omni_emails');
@@ -75,6 +113,18 @@ export default function App() {
     setActiveTab(Tab.Weekly);
   }, []);
 
+  // Add calendar event from email
+  const addEventFromEmail = useCallback((date: Date, event: CalendarEvent) => {
+    const week = getOrCreateWeek(date, allWeeks);
+    const dateKey = formatDateKey(date);
+    const dayPlan = week.dailyPlans[dateKey] || { focus: '', todos: [], notes: '', events: [] };
+    const updatedWeek = {
+      ...week,
+      dailyPlans: { ...week.dailyPlans, [dateKey]: { ...dayPlan, events: [...dayPlan.events, event] } }
+    };
+    updateWeekForDate(date, updatedWeek);
+  }, [allWeeks, updateWeekForDate]);
+
   // Delete a habit from the current week AND all future weeks
   const deleteHabitGlobally = useCallback((habitId: string) => {
     const now = Date.now();
@@ -115,18 +165,29 @@ export default function App() {
     }
   };
 
+  const zoomStyle = useMemo(() => ({
+    transform: `scale(${currentZoom})`,
+    transformOrigin: 'top left',
+    width: `${100 / currentZoom}%`,
+    height: `${100 / currentZoom}%`,
+  }), [currentZoom]);
+
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900 select-none overflow-hidden antialiased">
-      <Sidebar 
-        emailsCount={emails.filter(e => !e.read).length} 
-        activeTab={activeTab} 
+      <Sidebar
+        emailsCount={emails.filter(e => !e.read).length}
+        activeTab={activeTab}
         setActiveTab={setActiveTab}
         onQuickSave={handleSaveData}
+        zoomPercent={currentZoomPercent}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onZoomReset={handleZoomReset}
       />
-      
+
       <main className="flex-1 flex flex-col p-2 md:p-4 bg-slate-100 min-w-0 h-screen overflow-hidden">
-        <div className="flex-1 bg-white rounded-3xl shadow-2xl shadow-slate-200/40 border border-slate-200 relative overflow-auto">
-          {activeTab === Tab.Inbox && <EmailView emails={emails} setEmails={setEmails} />}
+        <div className="flex-1 bg-white rounded-3xl shadow-2xl shadow-slate-200/40 border border-slate-200 relative overflow-auto" style={zoomStyle}>
+          {activeTab === Tab.Inbox && <EmailView emails={emails} setEmails={setEmails} allWeeks={allWeeks} onAddEvent={addEventFromEmail} />}
           {activeTab === Tab.Monthly && (
             <MonthlyView
               currentDate={currentDate}
@@ -148,9 +209,9 @@ export default function App() {
           )}
           {activeTab === Tab.Goals && <GoalsView lifeGoals={lifeGoals} setLifeGoals={setLifeGoals} />}
           {activeTab === Tab.Data && (
-            <DataView 
-              handleSaveData={handleSaveData} 
-              handleLoadData={handleLoadData} 
+            <DataView
+              handleSaveData={handleSaveData}
+              handleLoadData={handleLoadData}
             />
           )}
         </div>
@@ -158,11 +219,10 @@ export default function App() {
 
       {aiLoading && (
         <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-4 z-[100] border border-slate-700 animate-in fade-in slide-in-from-bottom-5 duration-300">
-          <Loader2 size={20} className="animate-spin text-blue-400"/> 
+          <Loader2 size={20} className="animate-spin text-blue-400"/>
           <span className="text-sm font-black tracking-wide uppercase">Gemini Optimizing Horizon...</span>
         </div>
       )}
     </div>
   );
 }
-

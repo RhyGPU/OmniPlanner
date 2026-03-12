@@ -94,3 +94,40 @@ export async function generateSchedule(todoText: string): Promise<any[]> {
     return [];
   }
 }
+
+/**
+ * Extract a calendar event from an email body using AI.
+ * Returns event data or null if no event could be extracted.
+ */
+export async function extractEventFromEmail(emailBody: string): Promise<{ title: string; date: string; startHour: number; duration: number } | null> {
+  const provider = getProvider();
+  if (!provider) {
+    return null;
+  }
+
+  try {
+    const systemPrompt = "Extract a calendar event from the following email. Return ONLY valid JSON with these fields: {\"title\": string, \"date\": \"YYYY-MM-DD\", \"startHour\": number (decimal, e.g. 14.5 for 2:30 PM), \"duration\": number (in hours)}. If no event/meeting/appointment can be found, return the string \"null\". Do not include any other text.";
+
+    const result = await provider.predictDailyFocus([systemPrompt], [emailBody]);
+    const trimmed = result.trim();
+    if (trimmed === 'null' || trimmed === '') return null;
+
+    // Extract JSON from the response
+    const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (parsed && parsed.title && parsed.date && typeof parsed.startHour === 'number') {
+      return {
+        title: parsed.title,
+        date: parsed.date,
+        startHour: parsed.startHour,
+        duration: parsed.duration || 1,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("AI event extraction error:", error);
+    return null;
+  }
+}

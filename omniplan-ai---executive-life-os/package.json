@@ -25,6 +25,7 @@
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@google/genai": "^1.38.0",
+    "imapflow": "^1.2.13",
     "lucide-react": "^0.562.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
@@ -60,11 +61,15 @@
       ]
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.productivity"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Office"
     },
     "nsis": {

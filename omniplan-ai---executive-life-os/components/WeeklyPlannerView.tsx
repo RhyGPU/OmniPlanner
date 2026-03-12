@@ -6,8 +6,8 @@ import {
   getWeekDays, formatDateKey, DAYS, MONTHS, 
   START_HOUR, PIXELS_PER_HOUR, formatHour, generateTimeSlots 
 } from '../constants';
-import { 
-  calculateHabitStreak, getActiveHabitsForWeek, deleteHabitFromWeek 
+import {
+  calculateHabitStreak, getActiveHabitsForWeek
 } from '../utils/weekManager';
 import { CheckableList } from './CheckableList';
 import { predictMainEvent } from '../services/ai';
@@ -39,7 +39,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   }, []);
 
   const isMobile = windowWidth < 1024;
-  const activeHabits = getActiveHabitsForWeek(currentWeek.habits, currentWeek.weekStartDate).filter(h => !h.archived);
+  const activeHabits = (currentWeek.habits || []).filter(h => !h.deletedAt && !h.archived);
 
   // Auto-archive stale habits (only runs once when week changes)
   useEffect(() => {
