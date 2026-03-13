@@ -1,14 +1,13 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame } from 'lucide-react';
-import { WeekData, DailyPlan, Habit } from '../types';
+import { WeekData, DailyPlan, Habit, HabitStreak } from '../types';
 import { 
   getWeekDays, formatDateKey, DAYS, MONTHS, 
   START_HOUR, PIXELS_PER_HOUR, formatHour, generateTimeSlots 
 } from '../constants';
-import {
-  calculateHabitStreak, getActiveHabitsForWeek
-} from '../utils/weekManager';
+import { calculateCrossWeekStreak } from '../utils/weekManager';
+import { getMilestoneForStreak, getFlameColorClass } from '../utils/habitMilestones';
 import { CheckableList } from './CheckableList';
 import { predictMainEvent } from '../services/ai';
 
@@ -19,10 +18,11 @@ interface WeeklyPlannerProps {
   updateCurrentWeek: (week: WeekData) => void;
   setAiLoading: (loading: boolean) => void;
   onDeleteHabit: (habitId: string) => void;
+  allWeeks: Record<string, WeekData>;
 }
 
 export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
-  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit
+  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, allWeeks
 }) => {
   const weekDates = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const [eventEditor, setEventEditor] = useState<any>(null);
@@ -224,20 +224,20 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
         
         <div className="flex-1 border-r border-slate-200 p-4 lg:p-6 flex flex-col min-w-[200px]">
             <div className="text-[10px] font-black uppercase text-blue-600 tracking-[0.2em] mb-3">Business Goals</div>
-            <CheckableList 
-              items={currentWeek.goals.business.map((text, i) => ({ id: i, text, done: false }))} 
-              onChange={items => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, business: items.map(i => i.text)}})} 
-              onAdd={() => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, business: [...currentWeek.goals.business, '']}}) } 
-              placeholder="Strategic aim..." 
+            <CheckableList
+              items={currentWeek.goals.business}
+              onChange={items => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, business: items}})}
+              onAdd={() => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, business: [...currentWeek.goals.business, { id: `bg-${Date.now()}`, text: '', done: false }]}}) }
+              placeholder="Strategic aim..."
             />
         </div>
         <div className="flex-1 p-4 lg:p-6 flex flex-col min-w-[200px]">
             <div className="text-[10px] font-black uppercase text-emerald-600 tracking-[0.2em] mb-3">Well-being & Growth</div>
-            <CheckableList 
-              items={currentWeek.goals.personal.map((text, i) => ({ id: i, text, done: false }))} 
-              onChange={items => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, personal: items.map(i => i.text)}})} 
-              onAdd={() => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, personal: [...currentWeek.goals.personal, '']}}) } 
-              placeholder="Personal win..." 
+            <CheckableList
+              items={currentWeek.goals.personal}
+              onChange={items => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, personal: items}})}
+              onAdd={() => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, personal: [...currentWeek.goals.personal, { id: `pg-${Date.now()}`, text: '', done: false }]}}) }
+              placeholder="Personal win..."
             />
         </div>
       </div>
@@ -288,21 +288,30 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         {activeHabits
                           .sort((a, b) => a.createdAt - b.createdAt) // Sort by creation date
                           .map(habit => {
-                          const streak = calculateHabitStreak(habit, weekDates);
+                          const streak = calculateCrossWeekStreak(habit.id, allWeeks);
+                          const milestone = getMilestoneForStreak(streak.currentStreak);
                           return (
                             <div key={habit.id} className="flex flex-col gap-2.5 group/habit">
                               <div className="flex justify-between items-center px-0.5">
-                                <div className="flex items-center gap-2 flex-1">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <span className="text-[11px] font-black text-slate-800 tracking-tight truncate">{habit.name}</span>
-                                  <span title={`${streak.totalDays}/7 days this week • Best streak: ${streak.longest} • ${streak.percentageComplete}%`} className="text-[11px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full flex items-center gap-2">
-                                    <Flame size={12} className={streak.totalDays >= 5 ? 'text-orange-500' : streak.totalDays >= 3 ? 'text-amber-500' : 'text-slate-400'}/>
-                                    <span className="text-[10px]">{streak.totalDays}/7</span>
+                                  <span
+                                    title={milestone ? `${milestone.message} (${streak.currentStreak} day streak)` : `${streak.currentStreak}d streak • Best: ${streak.longestStreak}d • Total: ${streak.totalDays}d`}
+                                    className={`text-[11px] font-black px-2 py-0.5 rounded-full flex items-center gap-1.5 flex-shrink-0 ${milestone ? `${milestone.bgColor} ${milestone.color}` : 'text-slate-500 bg-slate-100'} ${milestone?.animate ? 'animate-pulse' : ''}`}
+                                  >
+                                    <Flame size={12} className={getFlameColorClass(streak.currentStreak)}/>
+                                    <span className="text-[10px]">{streak.currentStreak}d</span>
                                   </span>
                                 </div>
                                 <button onClick={(e) => removeHabit(habit.id, e)} className={`${isMobile ? 'opacity-100' : 'opacity-0 group-hover/habit:opacity-100'} text-slate-300 hover:text-red-500 transition-all p-1`}>
                                   <Trash2 size={12}/>
                                 </button>
                               </div>
+                              {milestone && (
+                                <div className={`text-[9px] font-black uppercase tracking-wider px-1 ${milestone.color}`}>
+                                  {milestone.message}
+                                </div>
+                              )}
                               <div className="flex justify-between items-center bg-white rounded-xl p-2 border border-slate-100 shadow-sm ring-1 ring-slate-200/50">
                                 {weekDates.map((date, idx) => {
                                   const dateKey = formatDateKey(date);

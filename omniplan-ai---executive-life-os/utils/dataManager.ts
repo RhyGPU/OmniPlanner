@@ -1,4 +1,4 @@
-import { WeekData, LifeGoals, Email } from '../types';
+import { WeekData, LifeGoals, Email, Todo } from '../types';
 
 export interface OmniPlanBackup {
   version: string;
@@ -41,6 +41,27 @@ type LegacyBackup = {
   lifeGoals?: LifeGoals;
 };
 
+/**
+ * Migrate WeeklyGoals from old string[] format to Todo[] format in-place.
+ */
+const migrateWeeklyGoals = (allWeeks: Record<string, WeekData>): Record<string, WeekData> => {
+  for (const key of Object.keys(allWeeks)) {
+    const week = allWeeks[key];
+    if (!week.goals) continue;
+    for (const field of ['business', 'personal'] as const) {
+      const arr = week.goals[field];
+      if (arr && arr.length > 0 && typeof arr[0] === 'string') {
+        (week.goals as any)[field] = (arr as unknown as string[]).map((text, i) => ({
+          id: `${field[0]}g-migrated-${i}`,
+          text,
+          done: false,
+        }));
+      }
+    }
+  }
+  return allWeeks;
+};
+
 const normalizeBackup = (raw: unknown): OmniPlanBackupData => {
   if (!raw || typeof raw !== 'object') {
     throw new Error('Invalid backup file');
@@ -50,7 +71,7 @@ const normalizeBackup = (raw: unknown): OmniPlanBackupData => {
   if (maybe.data && typeof maybe.data === 'object') {
     const data = maybe.data as Partial<OmniPlanBackupData>;
     return {
-      allWeeks: (data.allWeeks ?? {}) as Record<string, WeekData>,
+      allWeeks: migrateWeeklyGoals((data.allWeeks ?? {}) as Record<string, WeekData>),
       emails: (data.emails ?? []) as Email[],
       lifeGoals: (data.lifeGoals ?? {}) as LifeGoals,
     };
@@ -58,7 +79,7 @@ const normalizeBackup = (raw: unknown): OmniPlanBackupData => {
 
   const legacy = raw as LegacyBackup;
   return {
-    allWeeks: (legacy.allWeeks ?? {}) as Record<string, WeekData>,
+    allWeeks: migrateWeeklyGoals((legacy.allWeeks ?? {}) as Record<string, WeekData>),
     emails: (legacy.emails ?? []) as Email[],
     lifeGoals: (legacy.lifeGoals ?? {}) as LifeGoals,
   };
