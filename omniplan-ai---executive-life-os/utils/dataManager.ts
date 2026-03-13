@@ -118,6 +118,10 @@ export const clearAllData = () => {
   localStorage.removeItem('omni_all_weeks');
   localStorage.removeItem('omni_emails');
   localStorage.removeItem('omni_lifegoals');
+  localStorage.removeItem('omni_zoom_levels');
+  localStorage.removeItem('omni_goals_base_years');
+  localStorage.removeItem('omni_email_accounts');
+  localStorage.removeItem('omni_ai_settings');
 };
 
 /**

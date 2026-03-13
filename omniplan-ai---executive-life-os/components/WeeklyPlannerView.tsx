@@ -18,11 +18,12 @@ interface WeeklyPlannerProps {
   updateCurrentWeek: (week: WeekData) => void;
   setAiLoading: (loading: boolean) => void;
   onDeleteHabit: (habitId: string) => void;
+  onAddHabit: (habit: Habit) => void;
   allWeeks: Record<string, WeekData>;
 }
 
 export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
-  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, allWeeks
+  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, onAddHabit, allWeeks
 }) => {
   const weekDates = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const [eventEditor, setEventEditor] = useState<any>(null);
@@ -116,7 +117,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
         lastUsedAt: Date.now(),
         archived: false
       };
-      updateCurrentWeek({ ...currentWeek, habits: [...currentWeek.habits, newHabit] });
+      onAddHabit(newHabit);
     }
     setIsAddingHabit(false);
     setNewHabitName('');
@@ -288,7 +289,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         {activeHabits
                           .sort((a, b) => a.createdAt - b.createdAt) // Sort by creation date
                           .map(habit => {
-                          const streak = calculateCrossWeekStreak(habit.id, allWeeks);
+                          const streak = calculateCrossWeekStreak(habit.id, allWeeks, currentWeek.weekEndDate);
                           const milestone = getMilestoneForStreak(streak.currentStreak);
                           return (
                             <div key={habit.id} className="flex flex-col gap-2.5 group/habit">
