@@ -1,6 +1,44 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
+// Polyfill diagnostics_channel.tracingChannel for Electron's Node 18.x
+// (pino, used by imapflow, requires this Node 19.9+ API)
+try {
+  const dc = require('node:diagnostics_channel');
+  if (typeof dc.tracingChannel !== 'function') {
+    dc.tracingChannel = function tracingChannelPolyfill(name) {
+      return {
+        start: dc.channel(name + ':start'),
+        end: dc.channel(name + ':end'),
+        asyncStart: dc.channel(name + ':asyncStart'),
+        asyncEnd: dc.channel(name + ':asyncEnd'),
+        error: dc.channel(name + ':error'),
+        subscribe(handlers) {
+          if (handlers.start) this.start.subscribe(handlers.start);
+          if (handlers.end) this.end.subscribe(handlers.end);
+          if (handlers.asyncStart) this.asyncStart.subscribe(handlers.asyncStart);
+          if (handlers.asyncEnd) this.asyncEnd.subscribe(handlers.asyncEnd);
+          if (handlers.error) this.error.subscribe(handlers.error);
+        },
+        unsubscribe(handlers) {
+          if (handlers.start) this.start.unsubscribe(handlers.start);
+          if (handlers.end) this.end.unsubscribe(handlers.end);
+          if (handlers.asyncStart) this.asyncStart.unsubscribe(handlers.asyncStart);
+          if (handlers.asyncEnd) this.asyncEnd.unsubscribe(handlers.asyncEnd);
+          if (handlers.error) this.error.unsubscribe(handlers.error);
+        },
+        get hasSubscribers() {
+          return this.start.hasSubscribers || this.end.hasSubscribers ||
+            this.asyncStart.hasSubscribers || this.asyncEnd.hasSubscribers ||
+            this.error.hasSubscribers;
+        },
+      };
+    };
+  }
+} catch (_) {
+  // diagnostics_channel unavailable — email fetch will still fail gracefully
+}
+
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 
 // Pre-configured IMAP hosts for known providers

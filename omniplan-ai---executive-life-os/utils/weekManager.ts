@@ -50,10 +50,18 @@ export const getOrCreateWeek = (
   date: Date,
   allWeeks: Record<string, WeekData>
 ): WeekData => {
+  // Build a set of habit IDs that are deleted in ANY week at or after `date`.
+  // This prevents older copies (without deletedAt) from being resurrected.
   const key = getWeekStorageKey(date);
+  const deletedIds = new Set<string>();
+  for (const [wk, weekData] of Object.entries(allWeeks)) {
+    for (const h of weekData.habits || []) {
+      if (h.deletedAt) deletedIds.add(h.id);
+    }
+  }
+
   if (allWeeks[key]) {
     // Reconcile: inject habits from earlier weeks that are missing here
-    // (e.g., habit created after this week was first cached)
     const existingWeek = allWeeks[key];
     const existingIds = new Set(existingWeek.habits?.map(h => h.id) || []);
     const missingHabits: Habit[] = [];
@@ -61,7 +69,7 @@ export const getOrCreateWeek = (
     for (const [wk, weekData] of Object.entries(allWeeks)) {
       if (wk >= key) continue; // only look at earlier weeks
       for (const h of weekData.habits || []) {
-        if (!existingIds.has(h.id) && !h.deletedAt) {
+        if (!existingIds.has(h.id) && !deletedIds.has(h.id)) {
           missingHabits.push({ ...h, completions: {} });
           existingIds.add(h.id);
         }
@@ -73,28 +81,32 @@ export const getOrCreateWeek = (
     }
     return existingWeek;
   }
-  
+
   const newWeek = createEmptyWeek(date);
   const newDates = getWeekDays(date);
-  
+
   // Collect habits from ALL previous weeks (by ID, to avoid duplicates)
   const habitMap = new Map<string, Habit>();
+  const seenIds = new Set<string>(); // track ALL seen IDs, even deleted ones
   let currentDate = new Date(date);
   currentDate.setDate(currentDate.getDate() - 7);
-  
+
   for (let i = 0; i < 520; i++) { // Look back up to 10 years
     const prevWeekKey = getWeekStorageKey(currentDate);
     const prevWeek = allWeeks[prevWeekKey];
-    
+
     if (prevWeek && prevWeek.habits) {
-      // Add or update habits (keyed by ID to prevent duplicates)
       prevWeek.habits.forEach(h => {
-        if (!h.deletedAt && !habitMap.has(h.id)) {
-          habitMap.set(h.id, h);
+        if (!seenIds.has(h.id)) {
+          seenIds.add(h.id);
+          // Only add if not deleted anywhere
+          if (!deletedIds.has(h.id)) {
+            habitMap.set(h.id, h);
+          }
         }
       });
     }
-    
+
     currentDate.setDate(currentDate.getDate() - 7);
   }
   
