@@ -52,7 +52,26 @@ export const getOrCreateWeek = (
 ): WeekData => {
   const key = getWeekStorageKey(date);
   if (allWeeks[key]) {
-    return allWeeks[key];
+    // Reconcile: inject habits from earlier weeks that are missing here
+    // (e.g., habit created after this week was first cached)
+    const existingWeek = allWeeks[key];
+    const existingIds = new Set(existingWeek.habits?.map(h => h.id) || []);
+    const missingHabits: Habit[] = [];
+
+    for (const [wk, weekData] of Object.entries(allWeeks)) {
+      if (wk >= key) continue; // only look at earlier weeks
+      for (const h of weekData.habits || []) {
+        if (!existingIds.has(h.id) && !h.deletedAt) {
+          missingHabits.push({ ...h, completions: {} });
+          existingIds.add(h.id);
+        }
+      }
+    }
+
+    if (missingHabits.length > 0) {
+      return { ...existingWeek, habits: [...(existingWeek.habits || []), ...missingHabits] };
+    }
+    return existingWeek;
   }
   
   const newWeek = createEmptyWeek(date);
@@ -234,9 +253,15 @@ export const calculateHabitStreak = (habit: Habit, weekDates: Date[]) => {
  * Calculate habit streak across ALL weeks (not just current week).
  * Returns current streak, longest streak, and total completed days.
  */
+/**
+ * Calculate habit streak across ALL weeks.
+ * Streak is counted backwards from the last day of the viewed week (weekEndDate),
+ * not from today's date. This way the streak reflects the page the user is viewing.
+ */
 export const calculateCrossWeekStreak = (
   habitId: string,
-  allWeeks: Record<string, WeekData>
+  allWeeks: Record<string, WeekData>,
+  weekEndDate: string
 ): { currentStreak: number; longestStreak: number; totalDays: number } => {
   // Collect all completed dates across all weeks
   const completedDates = new Set<string>();
@@ -256,7 +281,6 @@ export const calculateCrossWeekStreak = (
   const sortedDates = Array.from(completedDates).sort();
   const totalDays = sortedDates.length;
 
-  // Helper: get YYYY-MM-DD for a date offset from today
   const dateStr = (d: Date): string => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -264,12 +288,13 @@ export const calculateCrossWeekStreak = (
     return `${y}-${m}-${day}`;
   };
 
-  // Calculate current streak: walk backwards from today (or yesterday if today not done)
+  // Calculate current streak: walk backwards from the viewed week's end date
   let currentStreak = 0;
-  const today = new Date();
-  let cursor = new Date(today);
-  if (!completedDates.has(dateStr(cursor))) {
-    cursor.setDate(cursor.getDate() - 1); // Start from yesterday if today not yet done
+  const endDate = new Date(weekEndDate + 'T00:00:00');
+  let cursor = new Date(endDate);
+  // Find the last checked day on or before weekEndDate
+  while (!completedDates.has(dateStr(cursor)) && cursor >= new Date(sortedDates[0] + 'T00:00:00')) {
+    cursor.setDate(cursor.getDate() - 1);
   }
   while (completedDates.has(dateStr(cursor))) {
     currentStreak++;
@@ -283,7 +308,7 @@ export const calculateCrossWeekStreak = (
     const prev = new Date(sortedDates[i - 1] + 'T00:00:00');
     const curr = new Date(sortedDates[i] + 'T00:00:00');
     const diffMs = curr.getTime() - prev.getTime();
-    if (diffMs === 86400000) { // exactly 1 day apart
+    if (diffMs === 86400000) {
       tempStreak++;
     } else {
       longestStreak = Math.max(longestStreak, tempStreak);

@@ -7,7 +7,7 @@ import { MonthlyView } from './components/MonthlyView';
 import { WeeklyPlannerView } from './components/WeeklyPlannerView';
 import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
-import { Tab, Email, LifeGoals, WeekData, CalendarEvent } from './types';
+import { Tab, Email, LifeGoals, WeekData, CalendarEvent, Habit } from './types';
 import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
 import { formatDateKey } from './constants';
@@ -125,6 +125,34 @@ export default function App() {
     updateWeekForDate(date, updatedWeek);
   }, [allWeeks, updateWeekForDate]);
 
+  // Add a habit to current week AND all existing future weeks
+  const addHabitGlobally = useCallback((newHabit: Habit) => {
+    const now = Date.now();
+    const currentWeekKey = getWeekStorageKey(currentDate);
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      // Ensure current week exists
+      if (!updated[currentWeekKey]) {
+        updated[currentWeekKey] = getOrCreateWeek(currentDate, prev);
+      }
+      for (const weekKey of Object.keys(updated)) {
+        if (weekKey < currentWeekKey) continue; // skip past weeks
+        const week = updated[weekKey];
+        if (!week.habits?.some(h => h.id === newHabit.id)) {
+          updated[weekKey] = {
+            ...week,
+            habits: [...(week.habits || []), {
+              ...newHabit,
+              completions: weekKey === currentWeekKey ? newHabit.completions : {},
+            }],
+            updatedAt: now,
+          };
+        }
+      }
+      return updated;
+    });
+  }, [currentDate]);
+
   // Delete a habit from the current week AND all future weeks (preserves past records)
   const deleteHabitGlobally = useCallback((habitId: string) => {
     const now = Date.now();
@@ -208,6 +236,7 @@ export default function App() {
               updateCurrentWeek={updateCurrentWeek}
               setAiLoading={setAiLoading}
               onDeleteHabit={deleteHabitGlobally}
+              onAddHabit={addHabitGlobally}
               allWeeks={allWeeks}
             />
           )}
