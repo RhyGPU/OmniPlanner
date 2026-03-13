@@ -2,21 +2,28 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { Download, Upload, Database, ShieldCheck, FileJson, Calendar as CalendarIcon, FileUp, CheckCircle, AlertCircle } from 'lucide-react';
 import { clearAllData } from '../utils/dataManager';
+import { parseIcsFile } from '../utils/icsParser';
+import { CalendarEvent } from '../types';
 import { AISettings } from './AISettings';
 import { EmailSettings } from './EmailSettings';
 
 interface DataViewProps {
   handleSaveData: () => void;
   handleLoadData: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onImportIcsEvents: (events: { date: Date; event: CalendarEvent }[]) => void;
 }
 
 export const DataView: React.FC<DataViewProps> = ({
     handleSaveData,
     handleLoadData,
+    onImportIcsEvents,
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const icsInputRef = useRef<HTMLInputElement>(null);
     const [dragOver, setDragOver] = useState(false);
     const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [icsStatus, setIcsStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [icsCount, setIcsCount] = useState(0);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         handleLoadData(e);
@@ -51,6 +58,37 @@ export const DataView: React.FC<DataViewProps> = ({
     const handleDragLeave = useCallback(() => {
         setDragOver(false);
     }, []);
+
+    const handleIcsImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const text = ev.target?.result;
+                if (typeof text !== 'string') return;
+                const parsed = parseIcsFile(text);
+                if (parsed.length === 0) {
+                    setIcsStatus('error');
+                    setTimeout(() => setIcsStatus('idle'), 3000);
+                    return;
+                }
+                const mapped = parsed.map(p => ({
+                    date: new Date(p.date + 'T00:00:00'),
+                    event: p.event,
+                }));
+                onImportIcsEvents(mapped);
+                setIcsCount(parsed.length);
+                setIcsStatus('success');
+                setTimeout(() => setIcsStatus('idle'), 4000);
+            } catch {
+                setIcsStatus('error');
+                setTimeout(() => setIcsStatus('idle'), 3000);
+            }
+        };
+        reader.readAsText(file);
+        if (icsInputRef.current) icsInputRef.current.value = '';
+    }, [onImportIcsEvents]);
 
     const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
 
@@ -128,14 +166,40 @@ export const DataView: React.FC<DataViewProps> = ({
             </div>
             <div className="grid md:grid-cols-1 gap-10 mb-20">
                 <div
-                    className="group bg-slate-50 border-2 border-slate-50 p-12 rounded-[2.5rem] cursor-not-allowed opacity-60 flex items-center gap-10"
+                    className={`group bg-slate-50 border-2 p-12 rounded-[2.5rem] flex items-center gap-10 relative cursor-pointer transition-all duration-500 ${
+                        icsStatus === 'success'
+                            ? 'border-indigo-500 bg-indigo-50/50'
+                            : icsStatus === 'error'
+                            ? 'border-red-300 bg-red-50/50'
+                            : 'border-slate-50 hover:border-indigo-600 hover:bg-white hover:shadow-2xl'
+                    }`}
                 >
-                    <div className="w-20 h-20 bg-indigo-100 rounded-3xl flex items-center justify-center text-indigo-600 shadow-xl shadow-indigo-100/50 flex-shrink-0">
-                        <FileUp size={40}/>
+                    <input
+                        ref={icsInputRef}
+                        type="file"
+                        onChange={handleIcsImport}
+                        accept=".ics,.ical"
+                        className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                    />
+                    <div className={`w-20 h-20 rounded-3xl flex items-center justify-center shadow-xl flex-shrink-0 transition-all ${
+                        icsStatus === 'success'
+                            ? 'bg-indigo-600 text-white shadow-indigo-100/50'
+                            : 'bg-indigo-100 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white shadow-indigo-100/50'
+                    }`}>
+                        {icsStatus === 'success' ? <CheckCircle size={40}/> : <FileUp size={40}/>}
                     </div>
                     <div>
-                        <h3 className="font-black text-2xl text-slate-900 mb-3 tracking-tight uppercase">Integrate iCal (.ics)</h3>
-                        <p className="text-slate-500 font-bold leading-relaxed text-sm">iCal import coming soon - will merge external calendars (Google, Outlook, Apple) into your week timeline seamlessly.</p>
+                        <h3 className="font-black text-2xl text-slate-900 mb-3 tracking-tight uppercase">
+                            {icsStatus === 'success' ? `${icsCount} Events Imported!` : icsStatus === 'error' ? 'Import Failed' : 'Integrate iCal (.ics)'}
+                        </h3>
+                        <p className="text-slate-500 font-bold leading-relaxed text-sm">
+                            {icsStatus === 'success'
+                                ? 'Calendar events have been merged into your weekly timeline.'
+                                : icsStatus === 'error'
+                                ? 'Could not parse the file. Make sure it is a valid .ics calendar file.'
+                                : 'Click to import a .ics file from Google Calendar, Outlook, or Apple Calendar into your weekly planner.'
+                            }
+                        </p>
                     </div>
                 </div>
             </div>

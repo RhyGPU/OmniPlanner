@@ -125,6 +125,28 @@ export default function App() {
     updateWeekForDate(date, updatedWeek);
   }, [allWeeks, updateWeekForDate]);
 
+  // Import multiple events from an ICS file
+  const importIcsEvents = useCallback((events: { date: Date; event: CalendarEvent }[]) => {
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      for (const { date, event } of events) {
+        const weekKey = getWeekStorageKey(date);
+        const week = updated[weekKey] || getOrCreateWeek(date, prev);
+        const dateKey = formatDateKey(date);
+        const dayPlan = week.dailyPlans[dateKey] || { focus: '', todos: [], notes: '', events: [] };
+        updated[weekKey] = {
+          ...week,
+          dailyPlans: {
+            ...week.dailyPlans,
+            [dateKey]: { ...dayPlan, events: [...dayPlan.events, event] },
+          },
+          updatedAt: Date.now(),
+        };
+      }
+      return updated;
+    });
+  }, []);
+
   // Add a habit to current week AND all existing future weeks
   const addHabitGlobally = useCallback((newHabit: Habit) => {
     const now = Date.now();
@@ -246,6 +268,7 @@ export default function App() {
               <DataView
                 handleSaveData={handleSaveData}
                 handleLoadData={handleLoadData}
+                onImportIcsEvents={importIcsEvents}
               />
             )}
           </div>
