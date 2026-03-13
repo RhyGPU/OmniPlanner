@@ -250,10 +250,6 @@ export const calculateHabitStreak = (habit: Habit, weekDates: Date[]) => {
 };
 
 /**
- * Calculate habit streak across ALL weeks (not just current week).
- * Returns current streak, longest streak, and total completed days.
- */
-/**
  * Calculate habit streak across ALL weeks.
  * Streak is counted backwards from the last day of the viewed week (weekEndDate),
  * not from today's date. This way the streak reflects the page the user is viewing.
