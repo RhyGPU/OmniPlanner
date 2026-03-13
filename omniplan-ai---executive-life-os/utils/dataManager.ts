@@ -115,13 +115,15 @@ export const downloadBackup = () => {
  * Clear all data from localStorage
  */
 export const clearAllData = () => {
-  localStorage.removeItem('omni_all_weeks');
-  localStorage.removeItem('omni_emails');
-  localStorage.removeItem('omni_lifegoals');
-  localStorage.removeItem('omni_zoom_levels');
-  localStorage.removeItem('omni_goals_base_years');
-  localStorage.removeItem('omni_email_accounts');
-  localStorage.removeItem('omni_ai_settings');
+  // Remove ALL omni_ prefixed keys — future-proof against new keys
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('omni_')) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key));
 };
 
 /**
