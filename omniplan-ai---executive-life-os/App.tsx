@@ -217,36 +217,38 @@ export default function App() {
       />
 
       <main className="flex-1 flex flex-col p-2 md:p-4 bg-slate-100 min-w-0 h-screen overflow-hidden">
-        <div className="flex-1 bg-white rounded-3xl shadow-2xl shadow-slate-200/40 border border-slate-200 relative overflow-auto" style={zoomStyle}>
-          {activeTab === Tab.Inbox && <EmailView emails={emails} setEmails={setEmails} allWeeks={allWeeks} onAddEvent={addEventFromEmail} />}
-          {activeTab === Tab.Monthly && (
-            <MonthlyView
-              currentDate={currentDate}
-              setCurrentDate={setCurrentDate}
-              allWeeks={allWeeks}
-              onUpdateWeek={updateWeekForDate}
-              onNavigateToWeek={navigateToWeeklyView}
-            />
-          )}
-          {activeTab === Tab.Weekly && (
-            <WeeklyPlannerView
-              currentDate={currentDate}
-              setCurrentDate={setCurrentDate}
-              currentWeek={currentWeek}
-              updateCurrentWeek={updateCurrentWeek}
-              setAiLoading={setAiLoading}
-              onDeleteHabit={deleteHabitGlobally}
-              onAddHabit={addHabitGlobally}
-              allWeeks={allWeeks}
-            />
-          )}
-          {activeTab === Tab.Goals && <GoalsView lifeGoals={lifeGoals} setLifeGoals={setLifeGoals} />}
-          {activeTab === Tab.Data && (
-            <DataView
-              handleSaveData={handleSaveData}
-              handleLoadData={handleLoadData}
-            />
-          )}
+        <div className="flex-1 bg-white rounded-3xl shadow-2xl shadow-slate-200/40 border border-slate-200 relative overflow-auto">
+          <div style={zoomStyle}>
+            {activeTab === Tab.Inbox && <EmailView emails={emails} setEmails={setEmails} allWeeks={allWeeks} onAddEvent={addEventFromEmail} />}
+            {activeTab === Tab.Monthly && (
+              <MonthlyView
+                currentDate={currentDate}
+                setCurrentDate={setCurrentDate}
+                allWeeks={allWeeks}
+                onUpdateWeek={updateWeekForDate}
+                onNavigateToWeek={navigateToWeeklyView}
+              />
+            )}
+            {activeTab === Tab.Weekly && (
+              <WeeklyPlannerView
+                currentDate={currentDate}
+                setCurrentDate={setCurrentDate}
+                currentWeek={currentWeek}
+                updateCurrentWeek={updateCurrentWeek}
+                setAiLoading={setAiLoading}
+                onDeleteHabit={deleteHabitGlobally}
+                onAddHabit={addHabitGlobally}
+                allWeeks={allWeeks}
+              />
+            )}
+            {activeTab === Tab.Goals && <GoalsView lifeGoals={lifeGoals} setLifeGoals={setLifeGoals} />}
+            {activeTab === Tab.Data && (
+              <DataView
+                handleSaveData={handleSaveData}
+                handleLoadData={handleLoadData}
+              />
+            )}
+          </div>
         </div>
       </main>
 
