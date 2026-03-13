@@ -126,11 +126,34 @@ export const getOrCreateWeek = (
 };
 
 /**
+ * Migrate WeeklyGoals from old string[] format to Todo[] format.
+ * Idempotent: no-ops on already-migrated or empty data.
+ */
+const migrateWeeklyGoals = (allWeeks: Record<string, WeekData>): Record<string, WeekData> => {
+  for (const key of Object.keys(allWeeks)) {
+    const week = allWeeks[key];
+    if (!week.goals) continue;
+    for (const field of ['business', 'personal'] as const) {
+      const arr = week.goals[field];
+      if (arr && arr.length > 0 && typeof arr[0] === 'string') {
+        (week.goals as any)[field] = (arr as unknown as string[]).map((text, i) => ({
+          id: `${field[0]}g-migrated-${i}`,
+          text,
+          done: false,
+        }));
+      }
+    }
+  }
+  return allWeeks;
+};
+
+/**
  * Get all weeks from local storage
  */
 export const getAllWeeks = (): Record<string, WeekData> => {
   const saved = localStorage.getItem('omni_all_weeks');
-  return saved ? JSON.parse(saved) : {};
+  if (!saved) return {};
+  return migrateWeeklyGoals(JSON.parse(saved));
 };
 
 /**
@@ -205,6 +228,71 @@ export const calculateHabitStreak = (habit: Habit, weekDates: Date[]) => {
 
   const percentageComplete = Math.round((totalDays / dateKeys.length) * 100);
   return { current, longest, totalDays, percentageComplete };
+};
+
+/**
+ * Calculate habit streak across ALL weeks (not just current week).
+ * Returns current streak, longest streak, and total completed days.
+ */
+export const calculateCrossWeekStreak = (
+  habitId: string,
+  allWeeks: Record<string, WeekData>
+): { currentStreak: number; longestStreak: number; totalDays: number } => {
+  // Collect all completed dates across all weeks
+  const completedDates = new Set<string>();
+  for (const week of Object.values(allWeeks)) {
+    const habit = week.habits?.find(h => h.id === habitId);
+    if (!habit) continue;
+    for (const [dateKey, done] of Object.entries(habit.completions)) {
+      if (done) completedDates.add(dateKey);
+    }
+  }
+
+  if (completedDates.size === 0) {
+    return { currentStreak: 0, longestStreak: 0, totalDays: 0 };
+  }
+
+  // Sort dates chronologically
+  const sortedDates = Array.from(completedDates).sort();
+  const totalDays = sortedDates.length;
+
+  // Helper: get YYYY-MM-DD for a date offset from today
+  const dateStr = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  // Calculate current streak: walk backwards from today (or yesterday if today not done)
+  let currentStreak = 0;
+  const today = new Date();
+  let cursor = new Date(today);
+  if (!completedDates.has(dateStr(cursor))) {
+    cursor.setDate(cursor.getDate() - 1); // Start from yesterday if today not yet done
+  }
+  while (completedDates.has(dateStr(cursor))) {
+    currentStreak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  // Calculate longest streak by scanning sorted dates
+  let longestStreak = 0;
+  let tempStreak = 1;
+  for (let i = 1; i < sortedDates.length; i++) {
+    const prev = new Date(sortedDates[i - 1] + 'T00:00:00');
+    const curr = new Date(sortedDates[i] + 'T00:00:00');
+    const diffMs = curr.getTime() - prev.getTime();
+    if (diffMs === 86400000) { // exactly 1 day apart
+      tempStreak++;
+    } else {
+      longestStreak = Math.max(longestStreak, tempStreak);
+      tempStreak = 1;
+    }
+  }
+  longestStreak = Math.max(longestStreak, tempStreak);
+
+  return { currentStreak, longestStreak, totalDays };
 };
 
 /**

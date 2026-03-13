@@ -58,8 +58,8 @@ export interface DailyPlan {
 }
 
 export interface WeeklyGoals {
-  business: string[]; // Enterprise/business weekly goals
-  personal: string[]; // Personal well-being & growth goals
+  business: Todo[]; // Enterprise/business weekly goals
+  personal: Todo[]; // Personal well-being & growth goals
 }
 
 export interface WeekData {

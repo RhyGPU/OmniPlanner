@@ -125,12 +125,15 @@ export default function App() {
     updateWeekForDate(date, updatedWeek);
   }, [allWeeks, updateWeekForDate]);
 
-  // Delete a habit from the current week AND all future weeks
+  // Delete a habit from the current week AND all future weeks (preserves past records)
   const deleteHabitGlobally = useCallback((habitId: string) => {
     const now = Date.now();
+    const currentWeekKey = getWeekStorageKey(currentDate);
     setAllWeeks(prev => {
       const updated = { ...prev };
       for (const weekKey of Object.keys(updated)) {
+        // Only affect current week and future weeks (string comparison works for omni_week_YYYY-MM-DD keys)
+        if (weekKey < currentWeekKey) continue;
         const week = updated[weekKey];
         if (week.habits?.some(h => h.id === habitId && !h.deletedAt)) {
           updated[weekKey] = {
@@ -144,7 +147,7 @@ export default function App() {
       }
       return updated;
     });
-  }, []);
+  }, [currentDate]);
 
   const handleSaveData = useCallback(() => {
     downloadBackup();
@@ -205,6 +208,7 @@ export default function App() {
               updateCurrentWeek={updateCurrentWeek}
               setAiLoading={setAiLoading}
               onDeleteHabit={deleteHabitGlobally}
+              allWeeks={allWeeks}
             />
           )}
           {activeTab === Tab.Goals && <GoalsView lifeGoals={lifeGoals} setLifeGoals={setLifeGoals} />}
