@@ -6,6 +6,7 @@ import { parseIcsFile } from '../utils/icsParser';
 import { CalendarEvent } from '../types';
 import { AISettings } from './AISettings';
 import { EmailSettings } from './EmailSettings';
+import { ConfirmDialog } from './Dialog';
 
 interface DataViewProps {
   handleSaveData: () => void;
@@ -24,6 +25,7 @@ export const DataView: React.FC<DataViewProps> = ({
     const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [icsStatus, setIcsStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [icsCount, setIcsCount] = useState(0);
+    const [showNukeConfirm, setShowNukeConfirm] = useState(false);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         handleLoadData(e);
@@ -94,6 +96,19 @@ export const DataView: React.FC<DataViewProps> = ({
 
     return (
       <div className="flex flex-col h-full bg-white p-12 overflow-y-auto custom-scrollbar">
+        {showNukeConfirm && (
+          <ConfirmDialog
+            message={"CRITICAL WARNING: This will permanently purge your local Life OS data.\nThis action is irreversible. Continue?"}
+            confirmLabel="Nuke"
+            danger
+            onConfirm={() => {
+              setShowNukeConfirm(false);
+              clearAllData();
+              window.location.reload();
+            }}
+            onCancel={() => setShowNukeConfirm(false)}
+          />
+        )}
         <div className="max-w-4xl mx-auto w-full">
             <div className="flex items-center gap-4 mb-3">
                 <div className="w-12 h-12 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600 shadow-lg shadow-blue-100/50">
@@ -215,12 +230,7 @@ export const DataView: React.FC<DataViewProps> = ({
                 </div>
                 <div className="flex gap-4">
                     <button
-                        onClick={() => {
-                            if (window.confirm("CRITICAL WARNING: This will permanently purge your local Life OS data. This action is irreversible. Continue?")) {
-                                clearAllData();
-                                window.location.reload();
-                            }
-                        }}
+                        onClick={() => setShowNukeConfirm(true)}
                         className="bg-red-500 hover:bg-red-600 text-white px-12 py-5 rounded-2xl font-black text-xs tracking-widest uppercase transition-all shadow-xl shadow-red-200 active:scale-95 whitespace-nowrap"
                     >
                         Nuke Workspace

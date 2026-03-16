@@ -50,15 +50,31 @@ export const getOrCreateWeek = (
   date: Date,
   allWeeks: Record<string, WeekData>
 ): WeekData => {
-  // Build a set of habit IDs that are deleted in ANY week at or after `date`.
-  // This prevents older copies (without deletedAt) from being resurrected.
   const key = getWeekStorageKey(date);
-  const deletedIds = new Set<string>();
-  for (const [wk, weekData] of Object.entries(allWeeks)) {
+
+  // Build a map of habitId -> earliest deletedAt timestamp across all weeks.
+  // Using the earliest timestamp lets us accurately determine whether a habit
+  // was alive during any given past week: if it was deleted AFTER a week ended,
+  // it was still active then and should still appear in that week.
+  const deletionTimestamps = new Map<string, number>();
+  for (const weekData of Object.values(allWeeks)) {
     for (const h of weekData.habits || []) {
-      if (h.deletedAt) deletedIds.add(h.id);
+      if (h.deletedAt) {
+        const existing = deletionTimestamps.get(h.id);
+        if (!existing || h.deletedAt < existing) {
+          deletionTimestamps.set(h.id, h.deletedAt);
+        }
+      }
     }
   }
+
+  // Returns true if the habit was still alive at the end of the given week.
+  const habitAliveAtWeekEnd = (habitId: string, weekEndDateStr: string): boolean => {
+    const deletedAt = deletionTimestamps.get(habitId);
+    if (!deletedAt) return true;
+    const weekEndMs = new Date(weekEndDateStr + 'T23:59:59').getTime();
+    return deletedAt > weekEndMs;
+  };
 
   if (allWeeks[key]) {
     // Reconcile: inject habits from earlier weeks that are missing here
@@ -69,7 +85,7 @@ export const getOrCreateWeek = (
     for (const [wk, weekData] of Object.entries(allWeeks)) {
       if (wk >= key) continue; // only look at earlier weeks
       for (const h of weekData.habits || []) {
-        if (!existingIds.has(h.id) && !deletedIds.has(h.id)) {
+        if (!existingIds.has(h.id) && habitAliveAtWeekEnd(h.id, existingWeek.weekEndDate)) {
           missingHabits.push({ ...h, completions: {} });
           existingIds.add(h.id);
         }
@@ -99,8 +115,8 @@ export const getOrCreateWeek = (
       prevWeek.habits.forEach(h => {
         if (!seenIds.has(h.id)) {
           seenIds.add(h.id);
-          // Only add if not deleted anywhere
-          if (!deletedIds.has(h.id)) {
+          // Only include if the habit was alive at the end of the NEW week being created
+          if (habitAliveAtWeekEnd(h.id, newWeek.weekEndDate)) {
             habitMap.set(h.id, h);
           }
         }
@@ -109,7 +125,7 @@ export const getOrCreateWeek = (
 
     currentDate.setDate(currentDate.getDate() - 7);
   }
-  
+
   // Convert habit map to array with reset completions
   if (habitMap.size > 0) {
     newWeek.habits = Array.from(habitMap.values())
