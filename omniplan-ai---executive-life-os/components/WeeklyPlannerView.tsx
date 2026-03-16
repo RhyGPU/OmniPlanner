@@ -2,13 +2,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame } from 'lucide-react';
 import { WeekData, DailyPlan, Habit, HabitStreak } from '../types';
-import { 
-  getWeekDays, formatDateKey, DAYS, MONTHS, 
-  START_HOUR, PIXELS_PER_HOUR, formatHour, generateTimeSlots 
+import {
+  getWeekDays, formatDateKey, DAYS, MONTHS,
+  START_HOUR, PIXELS_PER_HOUR, formatHour, generateTimeSlots
 } from '../constants';
 import { calculateCrossWeekStreak } from '../utils/weekManager';
 import { getMilestoneForStreak, getFlameColorClass } from '../utils/habitMilestones';
 import { CheckableList } from './CheckableList';
+import { ConfirmDialog } from './Dialog';
 import { predictMainEvent } from '../services/ai';
 
 interface WeeklyPlannerProps {
@@ -32,6 +33,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   const [mobileTab, setMobileTab] = useState<'plan' | 'strategy'>('plan');
   const [newHabitName, setNewHabitName] = useState('');
   const [isAddingHabit, setIsAddingHabit] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -126,11 +128,8 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   const removeHabit = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    if (window.confirm("Delete this habit from this week and all future weeks?")) {
-      // Delete globally across all weeks (current + future)
-      onDeleteHabit(id);
-    }
-  }, [currentWeek, updateCurrentWeek]);
+    setPendingDeleteId(id);
+  }, []);
 
   const saveEvent = useCallback(() => {
     if (!eventEditor) return;
@@ -161,6 +160,19 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-white relative w-full overflow-hidden">
+      {pendingDeleteId && (
+        <ConfirmDialog
+          message="Delete this habit from this week and all future weeks?"
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => {
+            onDeleteHabit(pendingDeleteId);
+            setPendingDeleteId(null);
+          }}
+          onCancel={() => setPendingDeleteId(null)}
+        />
+      )}
+
       {/* Event Editor Modal */}
       {eventEditor && (
         <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">

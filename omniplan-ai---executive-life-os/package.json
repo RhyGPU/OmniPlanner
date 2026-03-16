@@ -58,7 +58,8 @@
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "mac": {
       "target": [

@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, TestTube, Check, X, Mail } from 'lucide-react';
 import { EmailAccount } from '../types';
+import { AlertDialog } from './Dialog';
 
 const PROVIDERS = [
   { id: 'gmail', label: 'Gmail', host: 'imap.gmail.com' },
@@ -24,6 +25,7 @@ export const EmailSettings: React.FC = () => {
   const [accounts, setAccounts] = useState<EmailAccount[]>(getEmailAccounts);
   const [isAdding, setIsAdding] = useState(false);
   const [testStatus, setTestStatus] = useState<Record<string, 'testing' | 'success' | 'error'>>({});
+  const [alertMsg, setAlertMsg] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -61,14 +63,14 @@ export const EmailSettings: React.FC = () => {
   const testConnection = async (account: EmailAccount) => {
     const electronAPI = (window as any).electronAPI;
     if (!electronAPI?.fetchEmails) {
-      alert('Email testing requires Electron. Run the desktop app to test connections.');
+      setAlertMsg('Email testing requires Electron. Run the desktop app to test connections.');
       return;
     }
     setTestStatus(prev => ({ ...prev, [account.id]: 'testing' }));
     try {
       const result = await electronAPI.fetchEmails(account);
       setTestStatus(prev => ({ ...prev, [account.id]: result.success ? 'success' : 'error' }));
-      if (!result.success) alert('Connection failed: ' + result.error);
+      if (!result.success) setAlertMsg('Connection failed: ' + result.error);
     } catch {
       setTestStatus(prev => ({ ...prev, [account.id]: 'error' }));
     }
@@ -76,6 +78,7 @@ export const EmailSettings: React.FC = () => {
 
   return (
     <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100">
+      {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Mail className="text-blue-600" size={24} />

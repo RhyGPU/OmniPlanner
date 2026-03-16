@@ -7,6 +7,7 @@ import { MonthlyView } from './components/MonthlyView';
 import { WeeklyPlannerView } from './components/WeeklyPlannerView';
 import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
+import { AlertDialog } from './components/Dialog';
 import { Tab, Email, LifeGoals, WeekData, CalendarEvent, Habit } from './types';
 import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
@@ -20,6 +21,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.Weekly);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [aiLoading, setAiLoading] = useState(false);
+  const [alertMsg, setAlertMsg] = useState<string | null>(null);
 
   // Per-tab zoom levels
   const [zoomLevels, setZoomLevels] = useState<Record<string, number>>(() => {
@@ -214,7 +216,7 @@ export default function App() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.error("Restore failed:", message);
-      alert("Restore failed: " + message);
+      setAlertMsg("Restore failed: " + message);
     }
   };
 
@@ -227,6 +229,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900 select-none overflow-hidden antialiased">
+      {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
       <Sidebar
         emailsCount={emails.filter(e => !e.read).length}
         activeTab={activeTab}

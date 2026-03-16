@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 
 // Polyfill diagnostics_channel.tracingChannel for Electron's Node 18.x
@@ -68,6 +68,19 @@ function createWindow() {
   // Remove the default menu bar
   win.setMenuBarVisibility(false);
 
+  // Allow renderer fetch() to reach external AI and IMAP APIs.
+  // Without this, Electron's default file:// CSP blocks outbound connections.
+  win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https:; connect-src *;"
+        ],
+      },
+    });
+  });
+
   if (DEV_URL) {
     win.loadURL(DEV_URL);
     win.webContents.openDevTools();
@@ -75,6 +88,12 @@ function createWindow() {
     const indexPath = path.join(__dirname, 'dist', 'index.html');
     win.loadFile(indexPath);
   }
+
+  // Restore keyboard focus to the renderer after any OS-level interaction
+  // (e.g. a UAC prompt or system notification briefly stealing focus).
+  win.on('focus', () => {
+    win.webContents.focus();
+  });
 }
 
 app.whenReady().then(createWindow);
@@ -89,6 +108,13 @@ app.on('activate', () => {
 
 ipcMain.on('quit-app', () => {
   app.quit();
+});
+
+// Open external URLs in the system browser (used by AI settings docs links)
+ipcMain.on('open-external', (_event, url) => {
+  if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+    shell.openExternal(url);
+  }
 });
 
 // Email IMAP handlers

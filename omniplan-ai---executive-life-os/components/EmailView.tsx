@@ -4,6 +4,7 @@ import { Mail, ChevronLeft, Archive, Trash2, CheckCircle, RefreshCw, CalendarPlu
 import { Email, CalendarEvent, WeekData } from '../types';
 import { getEmailAccounts } from './EmailSettings';
 import { extractEventFromEmail } from '../services/ai';
+import { AlertDialog } from './Dialog';
 
 interface EmailViewProps {
   emails: Email[];
@@ -18,6 +19,7 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [fetching, setFetching] = useState(false);
   const [addingEvent, setAddingEvent] = useState(false);
+  const [alertMsg, setAlertMsg] = useState<string | null>(null);
   const selectedEmail = emails.find(e => e.id === selectedId);
 
   const markRead = (id: number) => {
@@ -33,11 +35,11 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
   const fetchAllEmails = async () => {
     const accounts = getEmailAccounts().filter(a => a.enabled);
     if (accounts.length === 0) {
-      alert('No email accounts configured. Go to Settings & Data to add one.');
+      setAlertMsg('No email accounts configured. Go to Settings & Data to add one.');
       return;
     }
     if (!electronAPI?.fetchEmails) {
-      alert('Email fetching requires the desktop (Electron) app.');
+      setAlertMsg('Email fetching requires the desktop (Electron) app.');
       return;
     }
 
@@ -103,13 +105,13 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
           color: '#3b82f6',
         };
         onAddEvent(date, event);
-        alert(`Event "${eventData.title}" added to ${eventData.date}!`);
+        setAlertMsg(`Event "${eventData.title}" added to ${eventData.date}!`);
       } else {
-        alert('No calendar event could be extracted from this email.');
+        setAlertMsg('No calendar event could be extracted from this email.');
       }
     } catch (err) {
       console.error('Event extraction error:', err);
-      alert('Failed to extract event. Check your AI settings.');
+      setAlertMsg('Failed to extract event. Check your AI settings.');
     } finally {
       setAddingEvent(false);
     }
@@ -122,6 +124,7 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
 
   return (
     <div className="flex h-full bg-white relative">
+      {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
       <div className={`${selectedId ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 lg:w-96 border-r border-slate-200`}>
         <div className="p-6 border-b border-slate-200 flex items-center justify-between">
            <h2 className="text-2xl font-black text-slate-900 tracking-tight">Inbox</h2>
