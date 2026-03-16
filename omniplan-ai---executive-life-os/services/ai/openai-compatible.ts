@@ -5,6 +5,7 @@
  */
 
 import { AIProvider, ScheduleItem } from './types';
+import { electronFetch } from '../../utils/electronFetch';
 
 interface OpenAICompatibleConfig {
   baseUrl: string;
@@ -25,7 +26,7 @@ async function chatCompletion(config: OpenAICompatibleConfig, systemPrompt: stri
     headers['Authorization'] = `Bearer ${config.apiKey}`;
   }
 
-  const response = await fetch(url, {
+  const response = await electronFetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify({

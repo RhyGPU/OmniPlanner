@@ -4,11 +4,12 @@
  */
 
 import { AIProvider, ScheduleItem } from './types';
+import { electronFetch } from '../../utils/electronFetch';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
 async function chatCompletion(apiKey: string, systemPrompt: string, userPrompt: string): Promise<string> {
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await electronFetch(OPENAI_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

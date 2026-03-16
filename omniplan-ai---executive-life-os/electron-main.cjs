@@ -1,5 +1,35 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, net } = require('electron');
 const path = require('path');
+
+// ─── Windows: relaunch with admin elevation if not already elevated ───────────
+// Must run before app.whenReady(). AI and email both need network access that
+// Windows Firewall grants to admin processes on first run.
+if (process.platform === 'win32') {
+  const { execSync, spawn } = require('child_process');
+  let isAdmin = false;
+  try {
+    execSync('net session', { stdio: 'pipe' });
+    isAdmin = true;
+  } catch {}
+
+  if (!isAdmin) {
+    // Escape paths for PowerShell string embedding
+    const execPath = process.execPath.replace(/\\/g, '/').replace(/'/g, "''");
+    const rawArgs = process.argv.slice(1);
+    const argList = rawArgs.length > 0
+      ? `-ArgumentList @(${rawArgs.map(a => `'${a.replace(/'/g, "''")}'`).join(',')})`
+      : '';
+
+    spawn('powershell.exe', [
+      '-NoProfile', '-WindowStyle', 'Hidden',
+      '-Command',
+      `Start-Process -FilePath '${execPath}' ${argList} -Verb RunAs`,
+    ], { detached: true, stdio: 'ignore' }).unref();
+
+    app.exit(0); // close this non-elevated instance immediately
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Polyfill diagnostics_channel.tracingChannel for Electron's Node 18.x
 // (pino, used by imapflow, requires this Node 19.9+ API)
@@ -108,6 +138,45 @@ app.on('activate', () => {
 
 ipcMain.on('quit-app', () => {
   app.quit();
+});
+
+// Generic HTTPS proxy via Electron's net module.
+// The renderer's fetch() can be blocked by CORS/CSP or Windows Firewall;
+// routing through the main process avoids both problems.
+ipcMain.handle('net:fetch', (_event, url, options = {}) => {
+  return new Promise((resolve, reject) => {
+    let request;
+    try {
+      request = net.request({ method: options.method || 'GET', url, redirect: 'follow' });
+    } catch (err) {
+      return reject(err);
+    }
+
+    if (options.headers) {
+      for (const [k, v] of Object.entries(options.headers)) {
+        if (v != null) request.setHeader(k, String(v));
+      }
+    }
+
+    request.on('response', (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        // Normalize multi-value headers to single strings
+        const headers = {};
+        for (const [k, v] of Object.entries(response.headers)) {
+          headers[k] = Array.isArray(v) ? v.join(', ') : v;
+        }
+        resolve({ status: response.statusCode, ok: response.statusCode >= 200 && response.statusCode < 300, body, headers });
+      });
+      response.on('error', reject);
+    });
+
+    request.on('error', reject);
+    if (options.body) request.write(options.body);
+    request.end();
+  });
 });
 
 // Open external URLs in the system browser (used by AI settings docs links)
