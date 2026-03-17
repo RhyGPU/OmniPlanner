@@ -4,11 +4,12 @@
  */
 
 import { AIProvider, ScheduleItem } from './types';
+import { electronFetch } from '../../utils/electronFetch';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
 async function createMessage(apiKey: string, systemPrompt: string, userPrompt: string): Promise<string> {
-  const response = await fetch(ANTHROPIC_API_URL, {
+  const response = await electronFetch(ANTHROPIC_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
