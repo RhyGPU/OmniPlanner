@@ -7,7 +7,11 @@ import { runMigrations } from './services/storage/migrations';
 
 // Run schema migrations before mounting the app.
 // Idempotent: no-ops if storage is already up to date.
-runMigrations();
+try {
+  runMigrations();
+} catch (e) {
+  console.error('[OmniPlan] Migration failed — starting with current storage state:', e);
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

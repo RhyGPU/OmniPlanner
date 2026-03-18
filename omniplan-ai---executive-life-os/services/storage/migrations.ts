@@ -97,9 +97,9 @@ function migrateLifeGoalsToGoalItems(): void {
 
   // '5' -> five_year: goal field as text, action field as notes
   for (const [year, data] of Object.entries(lifeGoals['5'] ?? {})) {
-    const goalText = (typeof data === 'object' ? data.goal : '').trim();
+    const goalText = (data && typeof data === 'object' ? data.goal : '').trim();
     if (!goalText) continue;
-    const actionText = (typeof data === 'object' ? data.action : '').trim();
+    const actionText = (data && typeof data === 'object' ? data.action : '').trim();
     items.push({
       id: `goal-5y-${year}`,
       text: goalText,
