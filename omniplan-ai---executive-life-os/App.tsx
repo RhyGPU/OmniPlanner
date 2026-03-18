@@ -268,7 +268,7 @@ export default function App() {
                 goalItems={goalItems}
               />
             )}
-            {activeTab === Tab.Goals && <GoalsView goalItems={goalItems} setGoalItems={setGoalItems} />}
+            {activeTab === Tab.Goals && <GoalsView goalItems={goalItems} setGoalItems={setGoalItems} allWeeks={allWeeks} />}
             {activeTab === Tab.Data && (
               <DataView
                 handleSaveData={handleSaveData}

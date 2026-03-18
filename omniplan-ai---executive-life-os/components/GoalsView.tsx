@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Target, Flag, Rocket, Compass, Sparkles, ChevronLeft, ChevronRight, Check, Archive, Plus, RotateCcw } from 'lucide-react';
-import { GoalItem, GoalTimeframe } from '../types';
+import { GoalItem, GoalTimeframe, WeekData } from '../types';
 import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
 import {
   createGoalItem,
@@ -11,11 +11,15 @@ import {
   restoreGoalItem,
   getGoalItemsForYear,
   getGoalItemsByTimeframe,
+  getGoalProgress,
+  GoalProgress,
 } from '../utils/goalManager';
 
 interface GoalsViewProps {
   goalItems: GoalItem[];
   setGoalItems: React.Dispatch<React.SetStateAction<GoalItem[]>>;
+  /** Used to derive linked-Todo progress per goal. Read-only — not mutated here. */
+  allWeeks: Record<string, WeekData>;
 }
 
 type GoalTab = 'ten_year' | 'five_year' | 'three_year' | 'one_year' | 'monthly';
@@ -36,13 +40,15 @@ const SHORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
 
 interface GoalRowProps {
   item: GoalItem;
+  /** Derived from allWeeks via getGoalProgress(). Undefined when allWeeks is empty. */
+  progress?: GoalProgress;
   onUpdate: (id: string, changes: Partial<GoalItem>) => void;
   onComplete: (id: string) => void;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
 }
 
-const GoalRow: React.FC<GoalRowProps> = ({ item, onUpdate, onComplete, onArchive, onRestore }) => {
+const GoalRow: React.FC<GoalRowProps> = ({ item, progress, onUpdate, onComplete, onArchive, onRestore }) => {
   const isDone = item.status === 'completed';
   const isArchived = item.status === 'archived';
 
@@ -76,6 +82,20 @@ const GoalRow: React.FC<GoalRowProps> = ({ item, onUpdate, onComplete, onArchive
         />
       </div>
 
+      {/* Linked-Todo progress badge — visible only when at least one Todo is linked */}
+      {progress && progress.linked > 0 && (
+        <span
+          title={`${progress.completed} of ${progress.linked} linked weekly todos done${progress.allDone ? ' — all done!' : ''}`}
+          className={`self-center text-[9px] font-black px-1.5 py-0.5 rounded-full flex-shrink-0 transition-colors ${
+            progress.allDone
+              ? 'bg-emerald-100 text-emerald-600'
+              : 'bg-slate-100 text-slate-500'
+          }`}
+        >
+          {progress.completed}/{progress.linked}
+        </span>
+      )}
+
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex-shrink-0 mt-0.5">
         {isArchived ? (
           <button onClick={() => onRestore(item.id)} title="Restore" className="p-1 rounded text-slate-400 hover:text-blue-500 hover:bg-blue-50 transition-colors">
@@ -95,7 +115,7 @@ const GoalRow: React.FC<GoalRowProps> = ({ item, onUpdate, onComplete, onArchive
 // Main component
 // ---------------------------------------------------------------------------
 
-export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems }) => {
+export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, allWeeks }) => {
   const [tab, setTab] = useState<GoalTab>('five_year');
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth(); // 0-indexed
@@ -131,6 +151,9 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems })
     setGoalItems(prev => [...prev, newItem]);
   };
 
+  /** Convenience wrapper so callers don't inline the allWeeks argument. */
+  const prog = (id: string): GoalProgress => getGoalProgress(id, allWeeks);
+
   const rowProps = { onUpdate: handleUpdate, onComplete: handleComplete, onArchive: handleArchive, onRestore: handleRestore };
 
   // ---------------------------------------------------------------------------
@@ -155,7 +178,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems })
                 <div className="space-y-4">
                   {activeItems.map(item => (
                     <div key={item.id} className="space-y-1.5">
-                      <GoalRow item={item} {...rowProps}/>
+                      <GoalRow item={item} progress={prog(item.id)} {...rowProps}/>
                       {/* Operational steps (notes field) */}
                       <textarea
                         rows={1}
@@ -175,7 +198,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems })
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {activeItems.map(item => <GoalRow key={item.id} item={item} {...rowProps}/>)}
+                  {activeItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} {...rowProps}/>)}
                 </div>
               )}
 
@@ -192,7 +215,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems })
                     {archivedItems.length} archived
                   </summary>
                   <div className="mt-2 space-y-1 opacity-60">
-                    {archivedItems.map(item => <GoalRow key={item.id} item={item} {...rowProps}/>)}
+                    {archivedItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} {...rowProps}/>)}
                   </div>
                 </details>
               )}
@@ -216,7 +239,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems })
         <div className="bg-slate-50 p-8 rounded-3xl border border-slate-100">
           <div className="text-3xl font-black text-blue-600 tracking-tighter mb-5">{currentYear}</div>
           <div className="space-y-1">
-            {active.map(item => <GoalRow key={item.id} item={item} {...rowProps}/>)}
+            {active.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} {...rowProps}/>)}
           </div>
           <button
             onClick={() => handleAdd('one_year', { targetDate: `${currentYear}-12-31` })}
@@ -230,7 +253,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems })
                 {archived.length} archived
               </summary>
               <div className="mt-2 space-y-1 opacity-60">
-                {archived.map(item => <GoalRow key={item.id} item={item} {...rowProps}/>)}
+                {archived.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} {...rowProps}/>)}
               </div>
             </details>
           )}
@@ -261,7 +284,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems })
               isCurrentMonth ? 'text-blue-600 border-blue-200' : 'text-slate-900 border-slate-200'
             }`}>{month}</div>
             <div className="flex-1 space-y-1">
-              {monthItems.map(item => <GoalRow key={item.id} item={item} {...rowProps}/>)}
+              {monthItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} {...rowProps}/>)}
             </div>
             <button
               onClick={() => handleAdd('monthly', { targetDate: `${currentYear}-${mm}-01` })}

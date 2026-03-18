@@ -15,6 +15,11 @@ export interface GoalItem {
   text: string;
   timeframe: GoalTimeframe;
   parentGoalId?: string;
+  /**
+   * @deprecated Phase 3: Not persisted. Use Todo.parentGoalId as the sole link
+   * source and getTodosLinkedToGoal() / getGoalProgress() selectors to derive
+   * linked state from allWeeks at read time.
+   */
   linkedWeeklyGoalIds?: string[];
   order: number;
   status: GoalStatus;

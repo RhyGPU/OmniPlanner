@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target } from 'lucide-react';
-import { WeekData, DailyPlan, Habit, HabitStreak, GoalItem } from '../types';
+import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target, Link2 } from 'lucide-react';
+import { WeekData, DailyPlan, Habit, HabitStreak, GoalItem, Todo } from '../types';
 import { getFocusGoalItems } from '../utils/goalManager';
 import {
   getWeekDays, formatDateKey, DAYS, MONTHS,
@@ -36,6 +36,8 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   const [newHabitName, setNewHabitName] = useState('');
   const [isAddingHabit, setIsAddingHabit] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  // Which weekly-goal Todo's goal-picker popover is open. Id format: `{field}-{todo.id}`
+  const [openPickerId, setOpenPickerId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
@@ -62,6 +64,93 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWeek.weekStartDate]);
+
+  // Close goal picker on the next outside click
+  useEffect(() => {
+    if (!openPickerId) return;
+    const close = () => setOpenPickerId(null);
+    document.addEventListener('click', close, { once: true });
+    return () => document.removeEventListener('click', close);
+  }, [openPickerId]);
+
+  /**
+   * Returns a renderSuffix function for CheckableList.
+   * The suffix renders either:
+   *   - A purple pill (linked goal name + × unlink) when a parentGoalId is set, or
+   *   - A link icon button that opens a compact goal-picker popover.
+   * Only active GoalItems are shown as selectable options.
+   */
+  const makeGoalSuffix = (field: 'business' | 'personal', fieldItems: Todo[]) =>
+    (item: Todo, index: number): React.ReactNode => {
+      const linkedGoal = item.parentGoalId
+        ? goalItems.find(g => g.id === item.parentGoalId)
+        : undefined;
+      const activeGoals = goalItems.filter(g => g.status === 'active');
+      const pickerId = `${field}-${String(item.id)}`;
+      const isOpen = openPickerId === pickerId;
+
+      const linkTo = (goalId: string | undefined) => {
+        const updated = fieldItems.map((t, i) =>
+          i === index ? { ...t, parentGoalId: goalId } : t,
+        );
+        updateCurrentWeek({ ...currentWeek, goals: { ...currentWeek.goals, [field]: updated } });
+        setOpenPickerId(null);
+      };
+
+      const LABEL: Record<string, string> = {
+        ten_year: '10Y', five_year: '5Y', three_year: '3Y',
+        one_year: '1Y', monthly: 'MO', weekly: 'WK',
+      };
+
+      return (
+        <div className="relative flex-shrink-0 self-center">
+          {linkedGoal ? (
+            <button
+              onClick={() => linkTo(undefined)}
+              title={`Linked: ${linkedGoal.text || '(untitled)'} — click to unlink`}
+              className="flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-600 hover:bg-red-100 hover:text-red-500 transition-colors max-w-[80px] group/pill"
+            >
+              <Target size={8} className="flex-shrink-0"/>
+              <span className="truncate">{linkedGoal.text || '(goal)'}</span>
+              <X size={8} className="flex-shrink-0 opacity-0 group-hover/pill:opacity-100"/>
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); setOpenPickerId(isOpen ? null : pickerId); }}
+                title="Link to a life goal"
+                className="p-0.5 rounded text-slate-300 hover:text-purple-500 hover:bg-purple-50 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+              >
+                <Link2 size={11}/>
+              </button>
+              {isOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl min-w-[200px] max-h-[220px] overflow-y-auto"
+                  onClick={e => e.stopPropagation()}
+                >
+                  {activeGoals.length === 0 ? (
+                    <div className="px-3 py-3 text-[11px] text-slate-400 italic">No active goals yet — add some in Life Goals</div>
+                  ) : (
+                    activeGoals.map(goal => (
+                      <button
+                        key={goal.id}
+                        onClick={() => linkTo(goal.id)}
+                        className="w-full text-left px-3 py-2 text-[11px] hover:bg-purple-50 flex items-center gap-2 border-b border-slate-50 last:border-0"
+                      >
+                        <span className="text-[8px] font-black uppercase text-purple-400 flex-shrink-0 min-w-[22px]">
+                          {LABEL[goal.timeframe] ?? goal.timeframe}
+                        </span>
+                        <span className="truncate text-slate-700">{goal.text || '(untitled)'}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      );
+    };
 
   const jumpWeeks = (n: number) => {
     const d = new Date(currentDate);
@@ -245,6 +334,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
               onChange={items => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, business: items}})}
               onAdd={() => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, business: [...currentWeek.goals.business, { id: `bg-${Date.now()}`, text: '', done: false }]}}) }
               placeholder="Strategic aim..."
+              renderSuffix={makeGoalSuffix('business', currentWeek.goals.business)}
             />
         </div>
         <div className="flex-1 p-4 lg:p-6 flex flex-col min-w-[200px]">
@@ -254,6 +344,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
               onChange={items => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, personal: items}})}
               onAdd={() => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, personal: [...currentWeek.goals.personal, { id: `pg-${Date.now()}`, text: '', done: false }]}}) }
               placeholder="Personal win..."
+              renderSuffix={makeGoalSuffix('personal', currentWeek.goals.personal)}
             />
         </div>
       </div>

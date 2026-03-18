@@ -9,6 +9,8 @@ interface CheckableListProps {
   onAdd: () => void;
   placeholder: string;
   colorClass?: string;
+  /** Optional slot rendered after the text input for each row (e.g. goal-link badge). */
+  renderSuffix?: (item: Todo, index: number) => React.ReactNode;
 }
 
 const AutoSizeTextarea = ({ 
@@ -58,12 +60,13 @@ const AutoSizeTextarea = ({
   );
 };
 
-export const CheckableList: React.FC<CheckableListProps> = ({ 
-  items, 
-  onChange, 
-  onAdd, 
-  placeholder, 
-  colorClass = "text-slate-700" 
+export const CheckableList: React.FC<CheckableListProps> = ({
+  items,
+  onChange,
+  onAdd,
+  placeholder,
+  colorClass = "text-slate-700",
+  renderSuffix,
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
     if (e.key === 'Enter') { 
@@ -109,6 +112,8 @@ export const CheckableList: React.FC<CheckableListProps> = ({
                 style={{ overflowWrap: 'break-word', wordBreak: 'break-word', maxWidth: '100%' }}
             />
           </div>
+
+          {renderSuffix && renderSuffix(item, index)}
 
           <button
             onClick={() => onChange(items.filter((_, i) => i !== index))}

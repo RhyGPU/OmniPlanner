@@ -5,7 +5,7 @@
  * No React imports — these are pure domain functions usable anywhere.
  */
 
-import { GoalItem, GoalTimeframe } from '../types';
+import { GoalItem, GoalTimeframe, Todo, WeekData } from '../types';
 import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
 
 // ---------------------------------------------------------------------------
@@ -104,6 +104,63 @@ export const getGoalItemsForYear = (
  * Used to populate the Focus Goals panel in WeeklyPlannerView.
  * Capped at 5 items total to keep the sidebar uncluttered.
  */
+// ---------------------------------------------------------------------------
+// Phase 3 selectors — derive link state from allWeeks at read time.
+// Todo.parentGoalId is the sole persisted source of truth for links.
+// GoalItem.linkedWeeklyGoalIds is @deprecated and never written here.
+// ---------------------------------------------------------------------------
+
+/** All Todos across every week that link to a given GoalItem. */
+export const getTodosLinkedToGoal = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): Todo[] => {
+  const result: Todo[] = [];
+  for (const week of Object.values(allWeeks)) {
+    for (const todo of [...week.goals.business, ...week.goals.personal]) {
+      if (todo.parentGoalId === goalId) result.push(todo);
+    }
+  }
+  return result;
+};
+
+export const getLinkedTodoCount = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): number => getTodosLinkedToGoal(goalId, allWeeks).length;
+
+export const getCompletedLinkedTodoCount = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): number => getTodosLinkedToGoal(goalId, allWeeks).filter(t => t.done).length;
+
+export interface GoalProgress {
+  /** Total Todos linked to this goal across all weeks. */
+  linked: number;
+  /** Linked Todos that are marked done. */
+  completed: number;
+  /** True only when linked > 0 and every linked Todo is done. */
+  allDone: boolean;
+}
+
+/**
+ * Derives goal progress from weekly Todo state.
+ * Does NOT auto-complete the GoalItem — caller may surface allDone as a hint.
+ */
+export const getGoalProgress = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): GoalProgress => {
+  const todos = getTodosLinkedToGoal(goalId, allWeeks);
+  const completed = todos.filter(t => t.done).length;
+  return { linked: todos.length, completed, allDone: todos.length > 0 && completed === todos.length };
+};
+
+export const isGoalFullyCompleted = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): boolean => getGoalProgress(goalId, allWeeks).allDone;
+
 export const getFocusGoalItems = (items: GoalItem[], currentDate: Date): GoalItem[] => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
