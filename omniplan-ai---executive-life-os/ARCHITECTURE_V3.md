@@ -87,19 +87,57 @@ Habit {
 }
 ```
 
-### Life goals entity: `LifeGoals` (current — text only)
+### Life goals entity: `GoalItem` (Phase 2 — structured)
 
 ```typescript
-LifeGoals {
-  '10': Record<string, string>                          // 10-year vision per year-key
-  '5':  Record<string, { goal: string; action: string }> // 5-year trajectory
-  '3':  Record<string, string>                          // 3-year milestones
-  '1':  Record<string, string>                          // 1-year monthly focus
+GoalItem {
+  id:                   string          // 'goal-${Date.now()}' or 'goal-{tf}-{key}' (migrated)
+  text:                 string
+  timeframe:            'ten_year' | 'five_year' | 'three_year' | 'one_year' | 'monthly' | 'weekly'
+  parentGoalId?:        string          // link upward in goal hierarchy
+  linkedWeeklyGoalIds?: string[]        // link to Todo IDs (updated by Phase 3 UI)
+  order:                number          // sort key within timeframe
+  status:               'active' | 'completed' | 'archived'
+  notes?:               string          // free-form context (five_year: operational steps)
+  targetDate?:          string          // YYYY-MM-DD
+  createdAt:            string          // ISO datetime
+  updatedAt:            string          // ISO datetime
+  completedAt?:         string
+  archivedAt?:          string
 }
 ```
 
-> **Phase 2 target**: Introduce `GoalItem { id, text, timeframe, linkedWeeklyGoalIds?, completedAt? }`
-> and migrate the above text blobs. See PRODUCT_ROADMAP.md Phase 2.
+Storage key: `omni_goal_items` (GoalItem[]).
+
+Domain functions live in `utils/goalManager.ts` (pure, no React imports):
+- `createGoalItem`, `updateGoalItem`, `completeGoalItem`, `archiveGoalItem`, `restoreGoalItem`
+- `getGoalItemsByTimeframe`, `getGoalItemsForYear`
+- `getFocusGoalItems(items, currentDate)` — selector for the weekly sidebar panel
+
+### `LifeGoals` (legacy — retained for backup compatibility)
+
+```typescript
+LifeGoals {
+  '10': Record<string, string>
+  '5':  Record<string, { goal: string; action: string }>
+  '3':  Record<string, string>
+  '1':  Record<string, string>
+}
+```
+
+Storage key `omni_lifegoals` is no longer written by the live app but is still exported in backups
+so that restoring a pre-v3.0 backup re-triggers migration v2.
+
+### `Todo` (updated — Phase 2)
+
+```typescript
+Todo {
+  id:            string | number
+  text:          string
+  done:          boolean
+  parentGoalId?: string    // optional link to a GoalItem.id — picker UI in Phase 3
+}
+```
 
 ---
 
@@ -132,11 +170,12 @@ All storage key strings live in one place:
 export const LOCAL_STORAGE_KEYS = {
   ALL_WEEKS:        'omni_all_weeks',
   EMAILS:           'omni_emails',
-  LIFE_GOALS:       'omni_lifegoals',
+  LIFE_GOALS:       'omni_lifegoals',       // legacy — read by backup export only
   AI_SETTINGS:      'omni_ai_settings',
   EMAIL_ACCOUNTS:   'omni_email_accounts',  // TODO(security): plaintext passwords
   ZOOM_LEVELS:      'omni_zoom_levels',
   GOALS_BASE_YEARS: 'omni_goals_base_years',
+  GOAL_ITEMS:       'omni_goal_items',      // Phase 2: GoalItem[]
   SCHEMA_VERSION:   'omni_schema_version',
 } as const;
 ```
@@ -155,6 +194,9 @@ Current migrations:
 - **v1**: Canonicalise weekly goals from `string[]` to `Todo[]`
   (promotes the `migrateWeeklyGoals` logic that was previously duplicated
   in `weekManager.ts` and `dataManager.ts`)
+- **v2**: Convert `LifeGoals` text blobs to structured `GoalItem[]` records stored under
+  `omni_goal_items`. Idempotent — skips if `omni_goal_items` already contains items.
+  Preserves `omni_lifegoals` for backup restore compatibility.
 
 ### Sensitive credential separation
 
@@ -190,18 +232,25 @@ index.tsx:
   ReactDOM.render(<App />)
 
 App.tsx:
-  useState(() => getAllWeeks())     ← reads from storage adapter
+  useState(() => getAllWeeks())           ← reads from storage adapter
   useState(() => storage.get(EMAILS))
-  useState(() => storage.get(LIFE_GOALS))
+  useState(() => storage.get(GOAL_ITEMS)) ← Phase 2: replaces LIFE_GOALS state
 ```
 
-### Backup export
+### Backup export (v3.0 format)
 
 ```
 DataView → downloadBackup()
   → dataManager.exportAllData()
-  → storage.get(ALL_WEEKS) + storage.get(EMAILS) + storage.get(LIFE_GOALS)
+  → storage.get(ALL_WEEKS) + storage.get(EMAILS) +
+    storage.get(LIFE_GOALS)  [legacy, for old-backup restore compatibility] +
+    storage.get(GOAL_ITEMS)  [Phase 2+]
   → JSON blob download
+
+Old backup (v2.0, no goalItems): importAllData() resets schema to v1
+  → migration v2 re-runs from restored omni_lifegoals on next startup
+New backup (v3.0, has goalItems): importAllData() writes goalItems directly,
+  sets schema version to 2
 ```
 
 ---
@@ -229,6 +278,7 @@ omniplan-ai---executive-life-os/
 ├── utils/
 │   ├── weekManager.ts               week CRUD, habit inheritance, streaks (uses storage)
 │   ├── dataManager.ts               backup/restore export (uses storage)
+│   ├── goalManager.ts               GoalItem CRUD + selectors (pure, uses storage)
 │   ├── habitMilestones.ts           milestone messages (pure, no storage)
 │   ├── icsParser.ts                 ICS import (pure, no storage)
 │   └── electronFetch.ts             ELECTRON-ONLY: CORS bypass via net module

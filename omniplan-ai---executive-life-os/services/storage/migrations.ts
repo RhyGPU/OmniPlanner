@@ -12,10 +12,10 @@
  */
 
 import { storage, LOCAL_STORAGE_KEYS } from './index';
-import type { WeekData } from '../../types';
+import type { WeekData, LifeGoals, GoalItem } from '../../types';
 
 /** The version this build expects storage to be at. Increment when adding migrations. */
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 2;
 
 interface Migration {
   version: number;
@@ -60,6 +60,100 @@ function migrateGoalsToTodos(): void {
   }
 }
 
+/**
+ * v2 — Convert LifeGoals text blobs to structured GoalItem records.
+ *
+ * Maps omni_lifegoals (Record-of-strings by year/month) into typed GoalItem
+ * objects stored under omni_goal_items.
+ *
+ * Idempotent: skips entirely if omni_goal_items already contains items.
+ * omni_lifegoals is NOT deleted — retained for old-backup import compatibility.
+ */
+function migrateLifeGoalsToGoalItems(): void {
+  // Idempotency guard: if any goalItems already exist, skip
+  const existing = storage.get<GoalItem[]>(LOCAL_STORAGE_KEYS.GOAL_ITEMS);
+  if (existing && existing.length > 0) return;
+
+  const lifeGoals = storage.get<LifeGoals>(LOCAL_STORAGE_KEYS.LIFE_GOALS);
+  if (!lifeGoals) return;
+
+  const now = new Date().toISOString();
+  const items: GoalItem[] = [];
+
+  // '10' -> ten_year: one item per non-empty year entry
+  for (const [year, text] of Object.entries(lifeGoals['10'] ?? {})) {
+    if (!text?.trim()) continue;
+    items.push({
+      id: `goal-10y-${year}`,
+      text: text.trim(),
+      timeframe: 'ten_year',
+      order: parseInt(year, 10),
+      status: 'active',
+      targetDate: `${year}-12-31`,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  // '5' -> five_year: goal field as text, action field as notes
+  for (const [year, data] of Object.entries(lifeGoals['5'] ?? {})) {
+    const goalText = (typeof data === 'object' ? data.goal : '').trim();
+    if (!goalText) continue;
+    const actionText = (typeof data === 'object' ? data.action : '').trim();
+    items.push({
+      id: `goal-5y-${year}`,
+      text: goalText,
+      timeframe: 'five_year',
+      order: parseInt(year, 10),
+      status: 'active',
+      notes: actionText || undefined,
+      targetDate: `${year}-12-31`,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  // '3' -> three_year: key is "year_idx" (idx 0=Q1Q2, 1=Q3, 2=Q4)
+  for (const [key, text] of Object.entries(lifeGoals['3'] ?? {})) {
+    if (!text?.trim()) continue;
+    const [year, idxStr] = key.split('_');
+    const idx = parseInt(idxStr ?? '0', 10);
+    items.push({
+      id: `goal-3y-${key}`,
+      text: text.trim(),
+      timeframe: 'three_year',
+      order: parseInt(year, 10) * 3 + idx,
+      status: 'active',
+      targetDate: `${year}-12-31`,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  // '1' -> monthly: key is 'Jan'|'Feb'|...|'Dec'
+  const MONTH_KEYS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const currentYear = new Date().getFullYear();
+  for (const [month, text] of Object.entries(lifeGoals['1'] ?? {})) {
+    if (!text?.trim()) continue;
+    const monthIdx = MONTH_KEYS.indexOf(month);
+    const mm = String(monthIdx + 1).padStart(2, '0');
+    items.push({
+      id: `goal-1m-${month}`,
+      text: text.trim(),
+      timeframe: 'monthly',
+      order: monthIdx >= 0 ? monthIdx : 99,
+      status: 'active',
+      targetDate: `${currentYear}-${mm}-01`,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  if (items.length > 0) {
+    storage.set(LOCAL_STORAGE_KEYS.GOAL_ITEMS, items);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -70,8 +164,11 @@ const MIGRATIONS: Migration[] = [
     description: 'Canonicalise weekly goals from string[] to Todo[]',
     run: migrateGoalsToTodos,
   },
-  // Add future migrations here:
-  // { version: 2, description: '...', run: migrate_v2 },
+  {
+    version: 2,
+    description: 'Convert LifeGoals text blobs to structured GoalItem records',
+    run: migrateLifeGoalsToGoalItems,
+  },
 ];
 
 // ---------------------------------------------------------------------------

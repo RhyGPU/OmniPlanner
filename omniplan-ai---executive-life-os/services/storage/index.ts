@@ -32,6 +32,8 @@ export const LOCAL_STORAGE_KEYS = {
   EMAIL_ACCOUNTS:   'omni_email_accounts',
   ZOOM_LEVELS:      'omni_zoom_levels',
   GOALS_BASE_YEARS: 'omni_goals_base_years',
+  /** Phase 2: structured GoalItem records replacing LifeGoals text blobs. */
+  GOAL_ITEMS:       'omni_goal_items',
   /** Integer version of the highest applied migration. Written by runMigrations(). */
   SCHEMA_VERSION:   'omni_schema_version',
 } as const;

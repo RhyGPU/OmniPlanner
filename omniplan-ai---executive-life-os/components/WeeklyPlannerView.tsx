@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame } from 'lucide-react';
-import { WeekData, DailyPlan, Habit, HabitStreak } from '../types';
+import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target } from 'lucide-react';
+import { WeekData, DailyPlan, Habit, HabitStreak, GoalItem } from '../types';
+import { getFocusGoalItems } from '../utils/goalManager';
 import {
   getWeekDays, formatDateKey, DAYS, MONTHS,
   START_HOUR, PIXELS_PER_HOUR, formatHour, generateTimeSlots
@@ -21,10 +22,11 @@ interface WeeklyPlannerProps {
   onDeleteHabit: (habitId: string) => void;
   onAddHabit: (habit: Habit) => void;
   allWeeks: Record<string, WeekData>;
+  goalItems: GoalItem[];
 }
 
 export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
-  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, onAddHabit, allWeeks
+  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, onAddHabit, allWeeks, goalItems
 }) => {
   const weekDates = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const [eventEditor, setEventEditor] = useState<any>(null);
@@ -43,6 +45,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
 
   const isMobile = windowWidth < 1024;
   const activeHabits = (currentWeek.habits || []).filter(h => !h.deletedAt && !h.archived);
+  const focusItems = useMemo(() => getFocusGoalItems(goalItems, currentDate), [goalItems, currentDate]);
 
   // Auto-archive stale habits (only runs once when week changes)
   useEffect(() => {
@@ -272,6 +275,33 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         <Zap size={16} className="group-hover:animate-pulse fill-white"/>
                         <span className="text-xs font-black uppercase tracking-tight">AI Optimize Week</span>
                     </button>
+                </div>
+
+                {/* Focus Goals — active annual + this month's monthly goals */}
+                <div className="flex flex-col border-b border-slate-200 p-5 bg-white/60">
+                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                        <Target size={12} className="text-purple-500"/> Focus Goals
+                    </span>
+                    {focusItems.length === 0 ? (
+                        <div className="text-[10px] italic text-slate-400 text-center py-2">
+                            Set annual &amp; monthly goals in Life Goals →
+                        </div>
+                    ) : (
+                        <div className="space-y-2.5">
+                            {focusItems.map(item => (
+                                <div key={item.id} className="flex items-start gap-2">
+                                    <span className={`text-[8px] font-black uppercase mt-0.5 px-1.5 py-0.5 rounded flex-shrink-0 ${
+                                        item.timeframe === 'monthly'
+                                            ? 'bg-purple-100 text-purple-600'
+                                            : 'bg-blue-100 text-blue-600'
+                                    }`}>
+                                        {item.timeframe === 'monthly' ? 'MO' : 'AN'}
+                                    </span>
+                                    <span className="text-[11px] font-medium text-slate-700 leading-snug">{item.text}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex flex-col border-b border-slate-200 p-5 bg-white/60">
