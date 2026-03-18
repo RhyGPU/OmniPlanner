@@ -3,6 +3,27 @@ export interface Todo {
   id: string | number;
   text: string;
   done: boolean;
+  /** Phase 2: optional link to a GoalItem.id. Picker UI in Phase 3. */
+  parentGoalId?: string;
+}
+
+export type GoalTimeframe = 'ten_year' | 'five_year' | 'three_year' | 'one_year' | 'monthly' | 'weekly';
+export type GoalStatus = 'active' | 'completed' | 'archived';
+
+export interface GoalItem {
+  id: string;
+  text: string;
+  timeframe: GoalTimeframe;
+  parentGoalId?: string;
+  linkedWeeklyGoalIds?: string[];
+  order: number;
+  status: GoalStatus;
+  notes?: string;
+  targetDate?: string;    // YYYY-MM-DD
+  createdAt: string;      // ISO datetime
+  updatedAt: string;      // ISO datetime
+  completedAt?: string;
+  archivedAt?: string;
 }
 
 export interface Habit {

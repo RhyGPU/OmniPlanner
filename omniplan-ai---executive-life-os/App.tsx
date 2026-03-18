@@ -8,9 +8,10 @@ import { WeeklyPlannerView } from './components/WeeklyPlannerView';
 import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
 import { AlertDialog } from './components/Dialog';
-import { Tab, Email, LifeGoals, WeekData, CalendarEvent, Habit } from './types';
+import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit } from './types';
 import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
+import { saveGoalItems } from './utils/goalManager';
 import { formatDateKey } from './constants';
 import { storage, LOCAL_STORAGE_KEYS } from './services/storage';
 
@@ -73,16 +74,16 @@ export default function App() {
     () => storage.get<Email[]>(LOCAL_STORAGE_KEYS.EMAILS) ?? INITIAL_EMAILS,
   );
 
-  const [lifeGoals, setLifeGoals] = useState<LifeGoals>(
-    () => storage.get<LifeGoals>(LOCAL_STORAGE_KEYS.LIFE_GOALS) ?? { '10': {}, '5': {}, '3': {}, '1': {} },
+  const [goalItems, setGoalItems] = useState<GoalItem[]>(
+    () => storage.get<GoalItem[]>(LOCAL_STORAGE_KEYS.GOAL_ITEMS) ?? [],
   );
 
   // Global Persistence Effect
   useEffect(() => {
     saveAllWeeks(allWeeks);
     storage.set(LOCAL_STORAGE_KEYS.EMAILS, emails);
-    storage.set(LOCAL_STORAGE_KEYS.LIFE_GOALS, lifeGoals);
-  }, [allWeeks, emails, lifeGoals]);
+    saveGoalItems(goalItems);
+  }, [allWeeks, emails, goalItems]);
 
   // Update week data
   const updateCurrentWeek = useCallback((updatedWeek: WeekData) => {
@@ -210,7 +211,9 @@ export default function App() {
       const data = await uploadBackup(file);
       setAllWeeks(data.allWeeks);
       setEmails(data.emails.length > 0 ? data.emails : emails);
-      setLifeGoals(data.lifeGoals);
+      if (data.goalItems && data.goalItems.length > 0) {
+        setGoalItems(data.goalItems);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.error("Restore failed:", message);
@@ -262,9 +265,10 @@ export default function App() {
                 onDeleteHabit={deleteHabitGlobally}
                 onAddHabit={addHabitGlobally}
                 allWeeks={allWeeks}
+                goalItems={goalItems}
               />
             )}
-            {activeTab === Tab.Goals && <GoalsView lifeGoals={lifeGoals} setLifeGoals={setLifeGoals} />}
+            {activeTab === Tab.Goals && <GoalsView goalItems={goalItems} setGoalItems={setGoalItems} />}
             {activeTab === Tab.Data && (
               <DataView
                 handleSaveData={handleSaveData}

@@ -1,4 +1,4 @@
-import { WeekData, LifeGoals, Email } from '../types';
+import { WeekData, LifeGoals, Email, GoalItem } from '../types';
 import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
 
 export interface OmniPlanBackup {
@@ -10,10 +10,13 @@ export interface OmniPlanBackup {
 export interface OmniPlanBackupData {
   allWeeks: Record<string, WeekData>;
   emails: Email[];
+  /** Retained for old-backup import compatibility. GoalItem is the live model. */
   lifeGoals: LifeGoals;
+  /** Phase 2+: structured GoalItem records. Absent in pre-v3.0 backups. */
+  goalItems?: GoalItem[];
 }
 
-const BACKUP_VERSION = '2.0';
+const BACKUP_VERSION = '3.0';
 
 /**
  * Export all data to a single consolidated backup object.
@@ -23,10 +26,12 @@ export const exportAllData = (): OmniPlanBackup => {
   const emails = storage.get<Email[]>(LOCAL_STORAGE_KEYS.EMAILS) ?? [];
   const lifeGoals = storage.get<LifeGoals>(LOCAL_STORAGE_KEYS.LIFE_GOALS) ?? {} as LifeGoals;
 
+  const goalItems = storage.get<GoalItem[]>(LOCAL_STORAGE_KEYS.GOAL_ITEMS) ?? [];
+
   return {
     version: BACKUP_VERSION,
     exportDate: new Date().toISOString(),
-    data: { allWeeks, emails, lifeGoals },
+    data: { allWeeks, emails, lifeGoals, goalItems },
   };
 };
 
@@ -71,6 +76,7 @@ const normalizeBackup = (raw: unknown): OmniPlanBackupData => {
       allWeeks: migrateWeeklyGoalsInBackup((data.allWeeks ?? {}) as Record<string, WeekData>),
       emails: (data.emails ?? []) as Email[],
       lifeGoals: (data.lifeGoals ?? {}) as LifeGoals,
+      goalItems: (data.goalItems ?? []) as GoalItem[],
     };
   }
 
@@ -79,16 +85,32 @@ const normalizeBackup = (raw: unknown): OmniPlanBackupData => {
     allWeeks: migrateWeeklyGoalsInBackup((legacy.allWeeks ?? {}) as Record<string, WeekData>),
     emails: (legacy.emails ?? []) as Email[],
     lifeGoals: (legacy.lifeGoals ?? {}) as LifeGoals,
+    goalItems: [],
   };
 };
 
 /**
  * Import all data from a consolidated backup object.
+ *
+ * Always restores lifeGoals (used as migration v2 source).
+ * If the backup contains goalItems, writes them directly and resets schema
+ * version to 2 (already migrated). If not, deletes the goalItems key and
+ * resets schema version to 1 so migration v2 re-runs from the restored
+ * lifeGoals on next startup.
  */
 export const importAllData = (backup: OmniPlanBackupData): void => {
   storage.set(LOCAL_STORAGE_KEYS.ALL_WEEKS, backup.allWeeks);
   storage.set(LOCAL_STORAGE_KEYS.EMAILS, backup.emails);
   storage.set(LOCAL_STORAGE_KEYS.LIFE_GOALS, backup.lifeGoals);
+
+  if (backup.goalItems && backup.goalItems.length > 0) {
+    storage.set(LOCAL_STORAGE_KEYS.GOAL_ITEMS, backup.goalItems);
+    storage.set(LOCAL_STORAGE_KEYS.SCHEMA_VERSION, 2);
+  } else {
+    // Old backup: let migration v2 run on next app start
+    storage.remove(LOCAL_STORAGE_KEYS.GOAL_ITEMS);
+    storage.set(LOCAL_STORAGE_KEYS.SCHEMA_VERSION, 1);
+  }
 };
 
 /**
