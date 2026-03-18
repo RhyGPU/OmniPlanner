@@ -1,4 +1,5 @@
-import { WeekData, LifeGoals, Email, Todo } from '../types';
+import { WeekData, LifeGoals, Email } from '../types';
+import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
 
 export interface OmniPlanBackup {
   version: string;
@@ -15,21 +16,17 @@ export interface OmniPlanBackupData {
 const BACKUP_VERSION = '2.0';
 
 /**
- * Export all data to a single consolidated file
+ * Export all data to a single consolidated backup object.
  */
 export const exportAllData = (): OmniPlanBackup => {
-  const allWeeks = JSON.parse(localStorage.getItem('omni_all_weeks') || '{}') as Record<string, WeekData>;
-  const emails = JSON.parse(localStorage.getItem('omni_emails') || '[]') as Email[];
-  const lifeGoals = JSON.parse(localStorage.getItem('omni_lifegoals') || '{}') as LifeGoals;
+  const allWeeks = storage.get<Record<string, WeekData>>(LOCAL_STORAGE_KEYS.ALL_WEEKS) ?? {};
+  const emails = storage.get<Email[]>(LOCAL_STORAGE_KEYS.EMAILS) ?? [];
+  const lifeGoals = storage.get<LifeGoals>(LOCAL_STORAGE_KEYS.LIFE_GOALS) ?? {} as LifeGoals;
 
   return {
     version: BACKUP_VERSION,
     exportDate: new Date().toISOString(),
-    data: {
-      allWeeks,
-      emails,
-      lifeGoals,
-    },
+    data: { allWeeks, emails, lifeGoals },
   };
 };
 
@@ -43,19 +40,19 @@ type LegacyBackup = {
 
 /**
  * Migrate WeeklyGoals from old string[] format to Todo[] format in-place.
+ * This is kept here as a safety net for backup files imported from before
+ * migration v1 ran. The canonical version lives in services/storage/migrations.ts.
  */
-const migrateWeeklyGoals = (allWeeks: Record<string, WeekData>): Record<string, WeekData> => {
+const migrateWeeklyGoalsInBackup = (allWeeks: Record<string, WeekData>): Record<string, WeekData> => {
   for (const key of Object.keys(allWeeks)) {
     const week = allWeeks[key];
     if (!week.goals) continue;
     for (const field of ['business', 'personal'] as const) {
       const arr = week.goals[field];
-      if (arr && arr.length > 0 && typeof arr[0] === 'string') {
-        (week.goals as any)[field] = (arr as unknown as string[]).map((text, i) => ({
-          id: `${field[0]}g-migrated-${i}`,
-          text,
-          done: false,
-        }));
+      if (arr && arr.length > 0 && typeof (arr as unknown[])[0] === 'string') {
+        (week.goals as Record<string, unknown>)[field] = (arr as unknown as string[]).map(
+          (text, i) => ({ id: `${field[0]}g-migrated-${i}`, text, done: false }),
+        );
       }
     }
   }
@@ -71,7 +68,7 @@ const normalizeBackup = (raw: unknown): OmniPlanBackupData => {
   if (maybe.data && typeof maybe.data === 'object') {
     const data = maybe.data as Partial<OmniPlanBackupData>;
     return {
-      allWeeks: migrateWeeklyGoals((data.allWeeks ?? {}) as Record<string, WeekData>),
+      allWeeks: migrateWeeklyGoalsInBackup((data.allWeeks ?? {}) as Record<string, WeekData>),
       emails: (data.emails ?? []) as Email[],
       lifeGoals: (data.lifeGoals ?? {}) as LifeGoals,
     };
@@ -79,25 +76,25 @@ const normalizeBackup = (raw: unknown): OmniPlanBackupData => {
 
   const legacy = raw as LegacyBackup;
   return {
-    allWeeks: migrateWeeklyGoals((legacy.allWeeks ?? {}) as Record<string, WeekData>),
+    allWeeks: migrateWeeklyGoalsInBackup((legacy.allWeeks ?? {}) as Record<string, WeekData>),
     emails: (legacy.emails ?? []) as Email[],
     lifeGoals: (legacy.lifeGoals ?? {}) as LifeGoals,
   };
 };
 
 /**
- * Import all data from a consolidated backup file
+ * Import all data from a consolidated backup object.
  */
-export const importAllData = (backup: OmniPlanBackupData) => {
-  localStorage.setItem('omni_all_weeks', JSON.stringify(backup.allWeeks));
-  localStorage.setItem('omni_emails', JSON.stringify(backup.emails));
-  localStorage.setItem('omni_lifegoals', JSON.stringify(backup.lifeGoals));
+export const importAllData = (backup: OmniPlanBackupData): void => {
+  storage.set(LOCAL_STORAGE_KEYS.ALL_WEEKS, backup.allWeeks);
+  storage.set(LOCAL_STORAGE_KEYS.EMAILS, backup.emails);
+  storage.set(LOCAL_STORAGE_KEYS.LIFE_GOALS, backup.lifeGoals);
 };
 
 /**
- * Download backup as JSON file
+ * Download backup as a timestamped JSON file.
  */
-export const downloadBackup = () => {
+export const downloadBackup = (): void => {
   const backup = exportAllData();
   const dataStr = JSON.stringify(backup, null, 2);
   const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -112,24 +109,18 @@ export const downloadBackup = () => {
 };
 
 /**
- * Clear all data from localStorage
+ * Remove all omni_* keys from storage.
  */
-export const clearAllData = () => {
-  // Remove ALL omni_ prefixed keys — future-proof against new keys
-  const keysToRemove: string[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith('omni_')) {
-      keysToRemove.push(key);
-    }
+export const clearAllData = (): void => {
+  for (const key of storage.keys('omni_')) {
+    storage.remove(key);
   }
-  keysToRemove.forEach(key => localStorage.removeItem(key));
 };
 
 /**
  * Upload and parse backup from file.
  * Returns the normalized data — caller is responsible for updating app state.
- * App state update will trigger the useEffect that persists to localStorage.
+ * App state update will trigger the useEffect that persists to storage.
  */
 export const uploadBackup = (file: File): Promise<OmniPlanBackupData> => {
   return new Promise((resolve, reject) => {
@@ -147,7 +138,7 @@ export const uploadBackup = (file: File): Promise<OmniPlanBackupData> => {
         }
         const raw = JSON.parse(text);
         const normalized = normalizeBackup(raw);
-        // Persist to localStorage so the data is available immediately
+        // Persist to storage so the data is available immediately
         importAllData(normalized);
         resolve(normalized);
       } catch (error) {

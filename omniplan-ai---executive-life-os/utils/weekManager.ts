@@ -1,5 +1,6 @@
 import { WeekData, DailyPlan, Habit } from '../types';
 import { formatDateKey, getWeekDays } from '../constants';
+import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
 
 /**
  * Create a new empty week structure
@@ -173,41 +174,19 @@ export const getOrCreateWeek = (
 };
 
 /**
- * Migrate WeeklyGoals from old string[] format to Todo[] format.
- * Idempotent: no-ops on already-migrated or empty data.
- */
-const migrateWeeklyGoals = (allWeeks: Record<string, WeekData>): Record<string, WeekData> => {
-  for (const key of Object.keys(allWeeks)) {
-    const week = allWeeks[key];
-    if (!week.goals) continue;
-    for (const field of ['business', 'personal'] as const) {
-      const arr = week.goals[field];
-      if (arr && arr.length > 0 && typeof arr[0] === 'string') {
-        (week.goals as any)[field] = (arr as unknown as string[]).map((text, i) => ({
-          id: `${field[0]}g-migrated-${i}`,
-          text,
-          done: false,
-        }));
-      }
-    }
-  }
-  return allWeeks;
-};
-
-/**
- * Get all weeks from local storage
+ * Get all weeks from storage.
+ * Note: goal format migration (string[] → Todo[]) is handled by runMigrations()
+ * at startup, not here. This function just reads.
  */
 export const getAllWeeks = (): Record<string, WeekData> => {
-  const saved = localStorage.getItem('omni_all_weeks');
-  if (!saved) return {};
-  return migrateWeeklyGoals(JSON.parse(saved));
+  return storage.get<Record<string, WeekData>>(LOCAL_STORAGE_KEYS.ALL_WEEKS) ?? {};
 };
 
 /**
- * Save all weeks to local storage
+ * Save all weeks to storage.
  */
-export const saveAllWeeks = (weeks: Record<string, WeekData>) => {
-  localStorage.setItem('omni_all_weeks', JSON.stringify(weeks));
+export const saveAllWeeks = (weeks: Record<string, WeekData>): void => {
+  storage.set(LOCAL_STORAGE_KEYS.ALL_WEEKS, weeks);
 };
 
 /**

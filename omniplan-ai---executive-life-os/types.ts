@@ -78,6 +78,9 @@ export interface EmailAccount {
   id: string;
   name: string;
   email: string;
+  /** TODO(security/email-password): stored in plaintext localStorage.
+   *  Phase 3 migration: Electron safeStorage keychain via IPC.
+   *  Phase 5 migration: OAuth tokens; remove this field for web/mobile. */
   password: string;
   provider: 'gmail' | 'outlook' | 'yahoo' | 'naver' | 'custom';
   imapHost?: string;

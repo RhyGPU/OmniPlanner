@@ -12,6 +12,7 @@ import { Tab, Email, LifeGoals, WeekData, CalendarEvent, Habit } from './types';
 import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
 import { formatDateKey } from './constants';
+import { storage, LOCAL_STORAGE_KEYS } from './services/storage';
 
 const INITIAL_EMAILS: Email[] = [
   { id: 1, provider: 'internal', sender: "OmniPlan Core", subject: "Executive System Ready", preview: "Your dashboard is ready...", body: "Welcome to OmniPlan!\n\nThis system is designed for high-performance scheduling. Your weekly planner, monthly overview, and life vision board are now active.\n\nUse the 'AI Optimize Week' feature to automatically generate focus themes based on your historical data and current tasks.\n\nBest,\nOmniPlan Team", time: "09:00 AM", read: false },
@@ -24,10 +25,9 @@ export default function App() {
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
 
   // Per-tab zoom levels
-  const [zoomLevels, setZoomLevels] = useState<Record<string, number>>(() => {
-    const saved = localStorage.getItem('omni_zoom_levels');
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [zoomLevels, setZoomLevels] = useState<Record<string, number>>(
+    () => storage.get<Record<string, number>>(LOCAL_STORAGE_KEYS.ZOOM_LEVELS) ?? {},
+  );
 
   const currentZoom = zoomLevels[activeTab] || 1.0;
   const currentZoomPercent = Math.round(currentZoom * 100);
@@ -37,7 +37,7 @@ export default function App() {
       const current = prev[activeTab] || 1.0;
       const next = Math.min(current + 0.1, 2.0);
       const updated = { ...prev, [activeTab]: next };
-      localStorage.setItem('omni_zoom_levels', JSON.stringify(updated));
+      storage.set(LOCAL_STORAGE_KEYS.ZOOM_LEVELS, updated);
       return updated;
     });
   }, [activeTab]);
@@ -47,7 +47,7 @@ export default function App() {
       const current = prev[activeTab] || 1.0;
       const next = Math.max(current - 0.1, 0.5);
       const updated = { ...prev, [activeTab]: next };
-      localStorage.setItem('omni_zoom_levels', JSON.stringify(updated));
+      storage.set(LOCAL_STORAGE_KEYS.ZOOM_LEVELS, updated);
       return updated;
     });
   }, [activeTab]);
@@ -55,7 +55,7 @@ export default function App() {
   const handleZoomReset = useCallback(() => {
     setZoomLevels(prev => {
       const updated = { ...prev, [activeTab]: 1.0 };
-      localStorage.setItem('omni_zoom_levels', JSON.stringify(updated));
+      storage.set(LOCAL_STORAGE_KEYS.ZOOM_LEVELS, updated);
       return updated;
     });
   }, [activeTab]);
@@ -69,21 +69,19 @@ export default function App() {
   const currentWeek = getOrCreateWeek(currentDate, allWeeks);
 
   // Persistent State Management
-  const [emails, setEmails] = useState<Email[]>(() => {
-    const saved = localStorage.getItem('omni_emails');
-    return saved ? JSON.parse(saved) : INITIAL_EMAILS;
-  });
+  const [emails, setEmails] = useState<Email[]>(
+    () => storage.get<Email[]>(LOCAL_STORAGE_KEYS.EMAILS) ?? INITIAL_EMAILS,
+  );
 
-  const [lifeGoals, setLifeGoals] = useState<LifeGoals>(() => {
-    const saved = localStorage.getItem('omni_lifegoals');
-    return saved ? JSON.parse(saved) : { '10': {}, '5': {}, '3': {}, '1': {} };
-  });
+  const [lifeGoals, setLifeGoals] = useState<LifeGoals>(
+    () => storage.get<LifeGoals>(LOCAL_STORAGE_KEYS.LIFE_GOALS) ?? { '10': {}, '5': {}, '3': {}, '1': {} },
+  );
 
   // Global Persistence Effect
   useEffect(() => {
     saveAllWeeks(allWeeks);
-    localStorage.setItem('omni_emails', JSON.stringify(emails));
-    localStorage.setItem('omni_lifegoals', JSON.stringify(lifeGoals));
+    storage.set(LOCAL_STORAGE_KEYS.EMAILS, emails);
+    storage.set(LOCAL_STORAGE_KEYS.LIFE_GOALS, lifeGoals);
   }, [allWeeks, emails, lifeGoals]);
 
   // Update week data
