@@ -161,6 +161,71 @@ export const isGoalFullyCompleted = (
   allWeeks: Record<string, WeekData>,
 ): boolean => getGoalProgress(goalId, allWeeks).allDone;
 
+// ---------------------------------------------------------------------------
+// Phase 4B selectors — daily task linkage.
+// DailyPlan.todos use the same Todo.parentGoalId field as weekly goals.
+// ---------------------------------------------------------------------------
+
+/** All daily Todos across every week that link to a given GoalItem. */
+export const getDailyTodosLinkedToGoal = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): Todo[] => {
+  const result: Todo[] = [];
+  for (const week of Object.values(allWeeks)) {
+    for (const dayPlan of Object.values(week.dailyPlans)) {
+      for (const todo of dayPlan.todos) {
+        if (todo.parentGoalId === goalId) result.push(todo);
+      }
+    }
+  }
+  return result;
+};
+
+export const getLinkedDailyTodoCount = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): number => getDailyTodosLinkedToGoal(goalId, allWeeks).length;
+
+export const getCompletedLinkedDailyTodoCount = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): number => getDailyTodosLinkedToGoal(goalId, allWeeks).filter(t => t.done).length;
+
+export interface GoalExecutionSummary {
+  /** Weekly goal Todos (week.goals.business / .personal) linked to this goal. */
+  weekly: { linked: number; completed: number };
+  /** Daily task Todos (week.dailyPlans[dateKey].todos) linked to this goal. */
+  daily: { linked: number; completed: number };
+  /** Combined across both layers. */
+  total: { linked: number; completed: number; allDone: boolean };
+}
+
+/**
+ * Derives combined weekly + daily execution progress for a GoalItem.
+ * Does NOT auto-complete the GoalItem — caller may surface allDone as a hint.
+ */
+export const getGoalExecutionSummary = (
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+): GoalExecutionSummary => {
+  const weeklyTodos = getTodosLinkedToGoal(goalId, allWeeks);
+  const dailyTodos = getDailyTodosLinkedToGoal(goalId, allWeeks);
+  const weeklyCompleted = weeklyTodos.filter(t => t.done).length;
+  const dailyCompleted = dailyTodos.filter(t => t.done).length;
+  const totalLinked = weeklyTodos.length + dailyTodos.length;
+  const totalCompleted = weeklyCompleted + dailyCompleted;
+  return {
+    weekly: { linked: weeklyTodos.length, completed: weeklyCompleted },
+    daily: { linked: dailyTodos.length, completed: dailyCompleted },
+    total: {
+      linked: totalLinked,
+      completed: totalCompleted,
+      allDone: totalLinked > 0 && totalCompleted === totalLinked,
+    },
+  };
+};
+
 export const getFocusGoalItems = (items: GoalItem[], currentDate: Date): GoalItem[] => {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;

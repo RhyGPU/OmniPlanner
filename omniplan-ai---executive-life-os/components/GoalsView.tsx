@@ -11,7 +11,7 @@ import {
   restoreGoalItem,
   getGoalItemsForYear,
   getGoalItemsByTimeframe,
-  getGoalProgress,
+  getGoalExecutionSummary,
   GoalProgress,
 } from '../utils/goalManager';
 
@@ -85,7 +85,7 @@ const GoalRow: React.FC<GoalRowProps> = ({ item, progress, onUpdate, onComplete,
       {/* Linked-Todo progress badge — visible only when at least one Todo is linked */}
       {progress && progress.linked > 0 && (
         <span
-          title={`${progress.completed} of ${progress.linked} linked weekly todos done${progress.allDone ? ' — all done!' : ''}`}
+          title={`${progress.completed} of ${progress.linked} linked todos done${progress.allDone ? ' — all done!' : ''}`}
           className={`self-center text-[9px] font-black px-1.5 py-0.5 rounded-full flex-shrink-0 transition-colors ${
             progress.allDone
               ? 'bg-emerald-100 text-emerald-600'
@@ -151,8 +151,11 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
     setGoalItems(prev => [...prev, newItem]);
   };
 
-  /** Convenience wrapper so callers don't inline the allWeeks argument. */
-  const prog = (id: string): GoalProgress => getGoalProgress(id, allWeeks);
+  /** Returns combined weekly + daily execution progress for a GoalItem. */
+  const prog = (id: string): GoalProgress => {
+    const summary = getGoalExecutionSummary(id, allWeeks);
+    return summary.total;
+  };
 
   const rowProps = { onUpdate: handleUpdate, onComplete: handleComplete, onArchive: handleArchive, onRestore: handleRestore };
 

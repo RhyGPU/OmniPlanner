@@ -104,10 +104,17 @@ export interface EmailAccount {
   id: string;
   name: string;
   email: string;
-  /** TODO(security/email-password): stored in plaintext localStorage.
-   *  Phase 3 migration: Electron safeStorage keychain via IPC.
-   *  Phase 5 migration: OAuth tokens; remove this field for web/mobile. */
-  password: string;
+  /**
+   * Password field is optional after Phase 4 credential hardening.
+   *
+   * In Electron: stored in safeStorage (credentials.enc.json) via
+   *   credentialSet('omni_email_pw_<id>', password). Not persisted in
+   *   localStorage after migration. Main process looks up the password
+   *   directly from safeStorage before each IMAP connection.
+   *
+   * In non-Electron (web dev fallback): stored here as plaintext.
+   */
+  password?: string;
   provider: 'gmail' | 'outlook' | 'yahoo' | 'naver' | 'custom';
   imapHost?: string;
   imapPort?: number;

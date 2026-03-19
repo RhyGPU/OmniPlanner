@@ -13,6 +13,11 @@ import { CheckableList } from './CheckableList';
 import { ConfirmDialog } from './Dialog';
 import { predictMainEvent } from '../services/ai';
 
+const GOAL_TIMEFRAME_LABELS: Record<string, string> = {
+  ten_year: '10Y', five_year: '5Y', three_year: '3Y',
+  one_year: '1Y', monthly: 'MO', weekly: 'WK',
+};
+
 interface WeeklyPlannerProps {
   currentDate: Date;
   setCurrentDate: (date: Date) => void;
@@ -74,21 +79,76 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   }, [openPickerId]);
 
   /**
-   * Returns a renderSuffix function for CheckableList.
-   * The suffix renders either:
-   *   - A purple pill (linked goal name + × unlink) when a parentGoalId is set, or
+   * Shared goal-link suffix renderer. Used by both makeGoalSuffix (weekly goals)
+   * and makeDailyGoalSuffix (daily todos). Renders either:
+   *   - A purple pill (linked goal name + × unlink) when parentGoalId is set, or
    *   - A link icon button that opens a compact goal-picker popover.
    * Only active GoalItems are shown as selectable options.
    */
+  const renderGoalLinkSuffix = (
+    item: Todo,
+    pickerId: string,
+    linkTo: (goalId: string | undefined) => void,
+  ): React.ReactNode => {
+    const linkedGoal = item.parentGoalId
+      ? goalItems.find(g => g.id === item.parentGoalId)
+      : undefined;
+    const activeGoals = goalItems.filter(g => g.status === 'active');
+    const isOpen = openPickerId === pickerId;
+
+    return (
+      <div className="relative flex-shrink-0 self-center">
+        {linkedGoal ? (
+          <button
+            onClick={() => linkTo(undefined)}
+            title={`Linked: ${linkedGoal.text || '(untitled)'} — click to unlink`}
+            className="flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-600 hover:bg-red-100 hover:text-red-500 transition-colors max-w-[80px] group/pill"
+          >
+            <Target size={8} className="flex-shrink-0"/>
+            <span className="truncate">{linkedGoal.text || '(goal)'}</span>
+            <X size={8} className="flex-shrink-0 opacity-0 group-hover/pill:opacity-100"/>
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpenPickerId(isOpen ? null : pickerId); }}
+              title="Link to a life goal"
+              className="p-0.5 rounded text-slate-300 hover:text-purple-500 hover:bg-purple-50 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+            >
+              <Link2 size={11}/>
+            </button>
+            {isOpen && (
+              <div
+                className="absolute right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl min-w-[200px] max-h-[220px] overflow-y-auto"
+                onClick={e => e.stopPropagation()}
+              >
+                {activeGoals.length === 0 ? (
+                  <div className="px-3 py-3 text-[11px] text-slate-400 italic">No active goals yet — add some in Life Goals</div>
+                ) : (
+                  activeGoals.map(goal => (
+                    <button
+                      key={goal.id}
+                      onClick={() => linkTo(goal.id)}
+                      className="w-full text-left px-3 py-2 text-[11px] hover:bg-purple-50 flex items-center gap-2 border-b border-slate-50 last:border-0"
+                    >
+                      <span className="text-[8px] font-black uppercase text-purple-400 flex-shrink-0 min-w-[22px]">
+                        {GOAL_TIMEFRAME_LABELS[goal.timeframe] ?? goal.timeframe}
+                      </span>
+                      <span className="truncate text-slate-700">{goal.text || '(untitled)'}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
   const makeGoalSuffix = (field: 'business' | 'personal', fieldItems: Todo[]) =>
     (item: Todo, index: number): React.ReactNode => {
-      const linkedGoal = item.parentGoalId
-        ? goalItems.find(g => g.id === item.parentGoalId)
-        : undefined;
-      const activeGoals = goalItems.filter(g => g.status === 'active');
       const pickerId = `${field}-${String(item.id)}`;
-      const isOpen = openPickerId === pickerId;
-
       const linkTo = (goalId: string | undefined) => {
         const updated = fieldItems.map((t, i) =>
           i === index ? { ...t, parentGoalId: goalId } : t,
@@ -96,60 +156,24 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
         updateCurrentWeek({ ...currentWeek, goals: { ...currentWeek.goals, [field]: updated } });
         setOpenPickerId(null);
       };
+      return renderGoalLinkSuffix(item, pickerId, linkTo);
+    };
 
-      const LABEL: Record<string, string> = {
-        ten_year: '10Y', five_year: '5Y', three_year: '3Y',
-        one_year: '1Y', monthly: 'MO', weekly: 'WK',
+  const makeDailyGoalSuffix = (dateKey: string, dayPlan: DailyPlan) =>
+    (item: Todo, index: number): React.ReactNode => {
+      const pickerId = `daily-${dateKey}-${String(item.id)}`;
+      const linkTo = (goalId: string | undefined) => {
+        const updatedTodos = dayPlan.todos.map((t, i) =>
+          i === index ? { ...t, parentGoalId: goalId } : t,
+        );
+        const updatedPlans = {
+          ...currentWeek.dailyPlans,
+          [dateKey]: { ...dayPlan, todos: updatedTodos },
+        };
+        updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
+        setOpenPickerId(null);
       };
-
-      return (
-        <div className="relative flex-shrink-0 self-center">
-          {linkedGoal ? (
-            <button
-              onClick={() => linkTo(undefined)}
-              title={`Linked: ${linkedGoal.text || '(untitled)'} — click to unlink`}
-              className="flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-600 hover:bg-red-100 hover:text-red-500 transition-colors max-w-[80px] group/pill"
-            >
-              <Target size={8} className="flex-shrink-0"/>
-              <span className="truncate">{linkedGoal.text || '(goal)'}</span>
-              <X size={8} className="flex-shrink-0 opacity-0 group-hover/pill:opacity-100"/>
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); setOpenPickerId(isOpen ? null : pickerId); }}
-                title="Link to a life goal"
-                className="p-0.5 rounded text-slate-300 hover:text-purple-500 hover:bg-purple-50 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-              >
-                <Link2 size={11}/>
-              </button>
-              {isOpen && (
-                <div
-                  className="absolute right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl min-w-[200px] max-h-[220px] overflow-y-auto"
-                  onClick={e => e.stopPropagation()}
-                >
-                  {activeGoals.length === 0 ? (
-                    <div className="px-3 py-3 text-[11px] text-slate-400 italic">No active goals yet — add some in Life Goals</div>
-                  ) : (
-                    activeGoals.map(goal => (
-                      <button
-                        key={goal.id}
-                        onClick={() => linkTo(goal.id)}
-                        className="w-full text-left px-3 py-2 text-[11px] hover:bg-purple-50 flex items-center gap-2 border-b border-slate-50 last:border-0"
-                      >
-                        <span className="text-[8px] font-black uppercase text-purple-400 flex-shrink-0 min-w-[22px]">
-                          {LABEL[goal.timeframe] ?? goal.timeframe}
-                        </span>
-                        <span className="truncate text-slate-700">{goal.text || '(untitled)'}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      );
+      return renderGoalLinkSuffix(item, pickerId, linkTo);
     };
 
   const jumpWeeks = (n: number) => {
@@ -527,19 +551,20 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                 </div>
                                 <div className="p-6 bg-white min-h-[300px]">
                                     <div className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em] mb-6 flex items-center gap-3">To Do List<div className="flex-1 h-px bg-slate-50"></div></div>
-                                    <CheckableList 
-                                      items={dayPlan.todos} 
+                                    <CheckableList
+                                      items={dayPlan.todos}
                                       onChange={(newTodos) => {
                                         const updatedPlans = { ...currentWeek.dailyPlans };
                                         updatedPlans[dateKey] = { ...dayPlan, todos: newTodos };
                                         updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
-                                      }} 
+                                      }}
                                       onAdd={() => {
                                         const updatedPlans = { ...currentWeek.dailyPlans };
                                         updatedPlans[dateKey] = { ...dayPlan, todos: [...dayPlan.todos, {id: `t-${Date.now()}`, text: '', done: false}] };
                                         updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
-                                      }} 
-                                      placeholder="Next action..." 
+                                      }}
+                                      placeholder="Next action..."
+                                      renderSuffix={makeDailyGoalSuffix(dateKey, dayPlan)}
                                     />
                                 </div>
                             </div>
