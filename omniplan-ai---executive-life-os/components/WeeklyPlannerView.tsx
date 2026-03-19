@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target, Link2 } from 'lucide-react';
-import { WeekData, DailyPlan, Habit, HabitStreak, GoalItem, Todo } from '../types';
+import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target, Link2, Clock, CalendarDays } from 'lucide-react';
+import { CalendarEventKind, WeekData, DailyPlan, Habit, HabitStreak, GoalItem, Todo } from '../types';
 import { getFocusGoalItems } from '../utils/goalManager';
 import {
   getWeekDays, formatDateKey, DAYS, MONTHS,
@@ -12,11 +12,27 @@ import { getMilestoneForStreak, getFlameColorClass } from '../utils/habitMilesto
 import { CheckableList } from './CheckableList';
 import { ConfirmDialog } from './Dialog';
 import { predictMainEvent } from '../services/ai';
+import { getUnscheduledWeeklyLinkedTodos } from '../utils/planningIntelligence';
 
 const GOAL_TIMEFRAME_LABELS: Record<string, string> = {
   ten_year: '10Y', five_year: '5Y', three_year: '3Y',
   one_year: '1Y', monthly: 'MO', weekly: 'WK',
 };
+
+const EVENT_KIND_COLORS: Record<CalendarEventKind, string> = {
+  meeting:    'bg-blue-50 border-blue-200 text-blue-700 shadow-sm',
+  focus:      'bg-purple-50 border-purple-200 text-purple-700 shadow-sm',
+  task_block: 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm',
+  routine:    'bg-slate-50 border-slate-200 text-slate-600 shadow-sm',
+};
+const DEFAULT_EVENT_COLOR = 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm';
+
+const EVENT_KINDS: { id: CalendarEventKind; label: string; activeClass: string }[] = [
+  { id: 'meeting',    label: 'Meeting',  activeClass: 'bg-blue-100 text-blue-700' },
+  { id: 'focus',      label: 'Focus',    activeClass: 'bg-purple-100 text-purple-700' },
+  { id: 'task_block', label: 'Task',     activeClass: 'bg-indigo-100 text-indigo-700' },
+  { id: 'routine',    label: 'Routine',  activeClass: 'bg-slate-100 text-slate-600' },
+];
 
 interface WeeklyPlannerProps {
   currentDate: Date;
@@ -53,6 +69,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   const isMobile = windowWidth < 1024;
   const activeHabits = (currentWeek.habits || []).filter(h => !h.deletedAt && !h.archived);
   const focusItems = useMemo(() => getFocusGoalItems(goalItems, currentDate), [goalItems, currentDate]);
+  const unscheduledLinked = useMemo(() => getUnscheduledWeeklyLinkedTodos(currentWeek), [currentWeek]);
 
   // Auto-archive stale habits (only runs once when week changes)
   useEffect(() => {
@@ -176,6 +193,31 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
       return renderGoalLinkSuffix(item, pickerId, linkTo);
     };
 
+  /** Open the event editor pre-filled from an unscheduled linked todo suggestion. */
+  const openFocusSuggestion = useCallback((todo: Todo) => {
+    const today = formatDateKey(new Date());
+    const dayEntries = Object.entries(currentWeek.dailyPlans).sort(([a], [b]) => a.localeCompare(b));
+    // Prefer today/future days with fewest events
+    const target =
+      dayEntries.find(([dk, dp]) => dk >= today && dp.events.length < 5) ??
+      dayEntries.find(([, dp]) => dp.events.length < 5) ??
+      dayEntries[0];
+    if (!target) return;
+    const [dateKey, dayPlan] = target;
+    const maxEnd = dayPlan.events.reduce((m, e) => Math.max(m, e.startHour + e.duration), 9);
+    setEventEditor({
+      dateKey,
+      title: todo.text || 'Focus block',
+      startHour: Math.min(maxEnd, 17),
+      duration: 1.5,
+      isNew: true,
+      repeating: false,
+      eventKind: 'focus' as CalendarEventKind,
+      parentGoalId: todo.parentGoalId,
+      linkedTodoId: todo.id,
+    });
+  }, [currentWeek]);
+
   const jumpWeeks = (n: number) => {
     const d = new Date(currentDate);
     d.setDate(d.getDate() + (n * 7));
@@ -249,17 +291,22 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
 
   const saveEvent = useCallback(() => {
     if (!eventEditor) return;
-    const { dateKey, id, title, startHour, duration, isNew, repeating } = eventEditor;
+    const { dateKey, id, title, startHour, duration, isNew, repeating, eventKind, parentGoalId, linkedTodoId } = eventEditor;
     const updatedDailyPlans = { ...currentWeek.dailyPlans };
     const dayPlan = updatedDailyPlans[dateKey];
     const existingEvent = !isNew ? dayPlan.events.find(e => e.id === id) : undefined;
+    const resolvedKind: CalendarEventKind = eventKind ?? existingEvent?.eventKind ?? 'focus';
     const baseEvent = {
       id: isNew ? Date.now() : id,
       title: title || "New Session",
       startHour: parseFloat(startHour),
       duration: parseFloat(duration),
-      color: existingEvent?.color ?? "bg-blue-50 border-blue-200 text-blue-700 shadow-sm",
-      repeating: typeof repeating === 'boolean' ? repeating : (existingEvent?.repeating ?? false)
+      // Preserve color on edit; use kind-based default for new events
+      color: existingEvent?.color ?? EVENT_KIND_COLORS[resolvedKind] ?? DEFAULT_EVENT_COLOR,
+      repeating: typeof repeating === 'boolean' ? repeating : (existingEvent?.repeating ?? false),
+      eventKind: resolvedKind,
+      ...(parentGoalId ? { parentGoalId } : {}),
+      ...(linkedTodoId !== undefined ? { linkedTodoId } : {}),
     };
 
     if (isNew) {
@@ -298,10 +345,47 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                <button onClick={() => setEventEditor(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={24}/></button>
             </div>
             <div className="space-y-5">
+              {/* Block type */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Block Type</label>
+                <div className="flex gap-1.5">
+                  {EVENT_KINDS.map(k => (
+                    <button
+                      key={k.id}
+                      type="button"
+                      onClick={() => setEventEditor({ ...eventEditor, eventKind: k.id })}
+                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                        (eventEditor.eventKind ?? 'focus') === k.id
+                          ? k.activeClass
+                          : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
+                      }`}
+                    >
+                      {k.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Description</label>
                 <input autoFocus className="w-full border border-slate-200 rounded-xl p-3.5 text-sm font-bold bg-slate-50" value={eventEditor.title} onChange={e => setEventEditor({...eventEditor, title: e.target.value})} placeholder="Title..." />
               </div>
+              {/* Linked goal context — shown when pre-filled from a suggestion */}
+              {eventEditor.parentGoalId && (() => {
+                const g = goalItems.find(gi => gi.id === eventEditor.parentGoalId);
+                return g ? (
+                  <div className="flex items-center gap-2 bg-purple-50 border border-purple-100 rounded-xl px-3 py-2">
+                    <Target size={12} className="text-purple-500 flex-shrink-0"/>
+                    <span className="text-[11px] font-bold text-purple-700 truncate">{g.text || '(untitled goal)'}</span>
+                    <button
+                      type="button"
+                      onClick={() => setEventEditor({ ...eventEditor, parentGoalId: undefined, linkedTodoId: undefined })}
+                      className="ml-auto text-purple-400 hover:text-purple-600 flex-shrink-0"
+                    >
+                      <X size={12}/>
+                    </button>
+                  </div>
+                ) : null;
+              })()}
               <div className="grid grid-cols-2 gap-4">
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Start</label>
@@ -418,6 +502,40 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         </div>
                     )}
                 </div>
+
+                {/* Focus Gaps — unscheduled linked weekly goals */}
+                {unscheduledLinked.length > 0 && (
+                  <div className="flex flex-col border-b border-slate-200 p-5 bg-amber-50/40">
+                    <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                      <Clock size={12}/> Focus Gaps
+                      <span className="ml-auto bg-amber-100 text-amber-600 rounded-full px-1.5 py-0.5 font-black">
+                        {unscheduledLinked.length}
+                      </span>
+                    </span>
+                    <div className="space-y-2">
+                      {unscheduledLinked.slice(0, 3).map(todo => (
+                        <div key={String(todo.id)} className="flex items-center gap-2">
+                          <span className="flex-1 text-[10px] text-slate-700 font-medium truncate min-w-0">
+                            {todo.text || '(untitled)'}
+                          </span>
+                          <button
+                            onClick={() => openFocusSuggestion(todo)}
+                            title="Create focus block"
+                            className="flex-shrink-0 flex items-center gap-0.5 text-[9px] font-black px-2 py-1 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-all whitespace-nowrap"
+                          >
+                            <CalendarDays size={9}/>
+                            Block
+                          </button>
+                        </div>
+                      ))}
+                      {unscheduledLinked.length > 3 && (
+                        <p className="text-[9px] text-amber-500 font-bold">
+                          +{unscheduledLinked.length - 3} more unscheduled
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-col border-b border-slate-200 p-5 bg-white/60">
                     <div className="flex items-center justify-between mb-5">
@@ -583,7 +701,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                     <div 
                                         key={hour} 
                                         className="h-20 border-b border-slate-100/40 flex items-start px-3 py-1.5 relative group cursor-pointer hover:bg-blue-50/50" 
-                                        onClick={() => setEventEditor({ dateKey, startHour: hour, duration: 1, title: "", isNew: true, repeating: false })}
+                                        onClick={() => setEventEditor({ dateKey, startHour: hour, duration: 1, title: "", isNew: true, repeating: false, eventKind: 'focus' as CalendarEventKind })}
                                     >
                                         <span className="text-[9px] font-black text-slate-200 group-hover:text-blue-500 pointer-events-none">{formatHour(hour)}</span>
                                     </div>
@@ -592,14 +710,23 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                     const top = (evt.startHour - START_HOUR) * PIXELS_PER_HOUR; 
                                     const height = evt.duration * PIXELS_PER_HOUR;
                                     return (
-                                        <div 
-                                            key={`${evt.id}-${dateKey}`} 
-                                            onClick={(e) => { e.stopPropagation(); setEventEditor({ dateKey, id: evt.id, title: evt.title, startHour: evt.startHour, duration: evt.duration, isNew: false, repeating: evt.repeating ?? false }); }} 
-                                            style={{ top: `${top}px`, height: `${height - 1}px` }} 
+                                        <div
+                                            key={`${evt.id}-${dateKey}`}
+                                            onClick={(e) => { e.stopPropagation(); setEventEditor({ dateKey, id: evt.id, title: evt.title, startHour: evt.startHour, duration: evt.duration, isNew: false, repeating: evt.repeating ?? false, eventKind: evt.eventKind, parentGoalId: evt.parentGoalId, linkedTodoId: evt.linkedTodoId }); }}
+                                            style={{ top: `${top}px`, height: `${height - 1}px` }}
                                             className={`absolute left-0 right-0 mx-1 rounded-2xl border-l-4 shadow-xl shadow-slate-200/50 p-3.5 text-[11px] leading-tight cursor-pointer hover:brightness-95 z-10 overflow-hidden transition-all hover:scale-[1.03] active:scale-95 ${evt.color}`}
                                         >
                                             <div className="font-black truncate uppercase tracking-tight text-slate-900">{evt.title}</div>
                                             <div className="opacity-70 font-bold text-[9px] mt-1 uppercase tracking-wider">{formatHour(evt.startHour)} - {formatHour(evt.startHour + evt.duration)}</div>
+                                            {evt.parentGoalId && (() => {
+                                              const g = goalItems.find(gi => gi.id === evt.parentGoalId);
+                                              return g ? (
+                                                <div className="opacity-70 text-[8px] font-black mt-0.5 flex items-center gap-0.5 truncate">
+                                                  <Target size={7} className="flex-shrink-0"/>
+                                                  <span className="truncate">{g.text}</span>
+                                                </div>
+                                              ) : null;
+                                            })()}
                                         </div>
                                     );
                                 })}

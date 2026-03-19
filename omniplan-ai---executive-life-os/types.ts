@@ -48,6 +48,9 @@ export interface HabitStreak {
   percentageComplete: number; // Completion percentage
 }
 
+/** Phase 5: discriminates calendar block purpose for scheduling intelligence. */
+export type CalendarEventKind = 'meeting' | 'focus' | 'task_block' | 'routine';
+
 export interface CalendarEvent {
   id: string | number;
   title: string;
@@ -56,6 +59,12 @@ export interface CalendarEvent {
   duration: number;
   color: string;
   repeating?: boolean; // Whether this event repeats to future weeks
+  // Phase 5: execution linkage — all optional, backward-compatible
+  eventKind?: CalendarEventKind;
+  /** Link to a GoalItem.id — this block supports that goal. */
+  parentGoalId?: string;
+  /** Link to a specific Todo.id — this block is scheduled time for that task. */
+  linkedTodoId?: string | number;
 }
 
 export interface LifeGoals {
