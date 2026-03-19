@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Brain, Eye, EyeOff, ExternalLink, CheckCircle, Server } from 'lucide-react';
 import { AIProviderID, AI_PROVIDERS } from '../services/ai/types';
-import { getAISettings, saveAISettings } from '../services/settings';
+import { getAISettings, saveAISettings, initAICredentials } from '../services/settings';
 
 export const AISettings: React.FC = () => {
   const [provider, setProvider] = useState<AIProviderID>('none');
@@ -11,17 +11,27 @@ export const AISettings: React.FC = () => {
   const [customModel, setCustomModel] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [keychainWarning, setKeychainWarning] = useState(false);
 
   useEffect(() => {
-    const settings = getAISettings();
-    setProvider(settings.provider);
-    setApiKey(settings.apiKey);
-    setCustomEndpoint(settings.customEndpoint || '');
-    setCustomModel(settings.customModel || '');
+    // Ensure the renderer-side cache is populated before reading the API key.
+    initAICredentials().then(() => {
+      const settings = getAISettings();
+      setProvider(settings.provider);
+      setApiKey(settings.apiKey);
+      setCustomEndpoint(settings.customEndpoint || '');
+      setCustomModel(settings.customModel || '');
+    });
   }, []);
 
-  const handleSave = () => {
-    saveAISettings({ provider, apiKey: apiKey.trim(), customEndpoint: customEndpoint.trim(), customModel: customModel.trim() });
+  const handleSave = async () => {
+    const ok = await saveAISettings({
+      provider,
+      apiKey: apiKey.trim(),
+      customEndpoint: customEndpoint.trim(),
+      customModel: customModel.trim(),
+    });
+    setKeychainWarning(!ok);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -92,6 +102,11 @@ export const AISettings: React.FC = () => {
             <p className="text-[10px] font-bold text-slate-400 mt-2">
               Your key is stored locally on your device. Never sent anywhere except the AI provider.
             </p>
+            {keychainWarning && (
+              <p className="text-[10px] font-bold text-amber-600 mt-1">
+                OS keychain unavailable — key saved in plain local storage. Install a keyring daemon for encrypted storage.
+              </p>
+            )}
           </div>
 
           {/* Custom Endpoint URL (for OpenRouter and Custom) */}

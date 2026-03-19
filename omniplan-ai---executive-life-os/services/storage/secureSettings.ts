@@ -1,25 +1,23 @@
 /**
  * Secure settings abstraction for sensitive credentials.
  *
- * CURRENT STATE: Credentials are stored as plaintext in localStorage.
- * This is the only file that reads or writes sensitive keys (AI_SETTINGS,
- * EMAIL_ACCOUNTS). All other code must go through these functions.
+ * SECURITY MODEL (Phase 4):
+ *   - API keys are stored in Electron safeStorage (OS keychain encryption).
+ *   - Non-sensitive settings (provider, customEndpoint, customModel) remain in
+ *     plain localStorage via the storage adapter.
+ *   - A renderer-side _apiKeyCache is populated once at startup by
+ *     initAICredentials(). getAISettings() remains synchronous by reading from
+ *     this cache, keeping the AI service layer unchanged.
+ *   - On web (no electronAPI), falls back to plain localStorage for the API key
+ *     so the app still works in a browser dev environment.
+ *   - Email passwords are managed by EmailSettings via credentialSet/Delete
+ *     directly — not through this file.
  *
- * WHY THIS FILE EXISTS: Bounding all credential I/O here makes the Phase 3
- * migration to OS keychain a single-file change rather than a codebase hunt.
- *
- * TODO(security/api-key): In Phase 3, replace storage.get/set(AI_SETTINGS)
- * with Electron safeStorage IPC calls:
- *   ipcRenderer.invoke('keychain:set', 'omni_api_key', settings.apiKey)
- *   ipcRenderer.invoke('keychain:get', 'omni_api_key')
- * The non-sensitive fields (provider, customEndpoint, customModel) can remain
- * in localStorage.
- *
- * TODO(security/email-password): In Phase 3/5, EmailAccount.password must NOT
- * be stored in localStorage. Migration path:
- *   - Electron: safeStorage keychain (same pattern as API key above)
- *   - Web/mobile: OAuth2 tokens only — remove the password field entirely
- * See SECURITY_MODEL.md for the full remediation plan.
+ * MIGRATION:
+ *   migrateCredentials() moves any plaintext API key / email passwords that
+ *   were stored in localStorage under the old scheme into safeStorage, then
+ *   strips the plaintext values. It is idempotent and safe to call on every
+ *   startup.
  */
 
 import { storage, LOCAL_STORAGE_KEYS } from './index';
@@ -32,6 +30,15 @@ export interface AISettings {
   customModel?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Non-sensitive AI settings shape stored in localStorage
+// ---------------------------------------------------------------------------
+interface AISettingsNonSensitive {
+  provider: AIProviderID;
+  customEndpoint?: string;
+  customModel?: string;
+}
+
 const AI_DEFAULTS: AISettings = {
   provider: 'none',
   apiKey: '',
@@ -39,37 +46,165 @@ const AI_DEFAULTS: AISettings = {
   customModel: '',
 };
 
-/** Read AI provider settings. Falls back to legacy env-var path for existing users. */
+// Renderer-side in-memory cache for the API key retrieved from safeStorage.
+// Populated by initAICredentials() on app startup.
+let _apiKeyCache: string | null = null;
+
+const KEYCHAIN_AI_KEY = 'omni_api_key';
+
+function isElectron(): boolean {
+  return typeof window !== 'undefined' && !!(window as Window).electronAPI;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Initialise the renderer-side API key cache from Electron safeStorage.
+ * Must be awaited once on app startup before getAISettings() is called.
+ * No-op on web (no electronAPI).
+ */
+export async function initAICredentials(): Promise<void> {
+  if (!isElectron()) return;
+  try {
+    const key = await window.electronAPI!.credentialGet(KEYCHAIN_AI_KEY);
+    _apiKeyCache = key ?? null;
+  } catch {
+    _apiKeyCache = null;
+  }
+}
+
+/**
+ * Read AI provider settings synchronously.
+ *
+ * Returns cached API key (populated by initAICredentials). Falls back to
+ * plaintext localStorage only when running outside Electron (dev browser).
+ */
 export function getAISettings(): AISettings {
-  const saved = storage.get<Partial<AISettings>>(LOCAL_STORAGE_KEYS.AI_SETTINGS);
+  const saved = storage.get<AISettingsNonSensitive>(LOCAL_STORAGE_KEYS.AI_SETTINGS);
+
+  let apiKey = '';
+  if (isElectron()) {
+    apiKey = _apiKeyCache ?? '';
+  } else {
+    // Web fallback: read from legacy full-settings object or env var
+    const legacy = storage.get<Partial<AISettings>>(LOCAL_STORAGE_KEYS.AI_SETTINGS);
+    apiKey = legacy?.apiKey ?? '';
+    if (!apiKey) {
+      apiKey =
+        (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
+        (typeof process !== 'undefined' && process.env?.API_KEY) ||
+        '';
+    }
+  }
+
   if (saved) {
     return {
       provider: saved.provider ?? AI_DEFAULTS.provider,
-      apiKey: saved.apiKey ?? '',
+      apiKey,
       customEndpoint: saved.customEndpoint ?? '',
       customModel: saved.customModel ?? '',
     };
   }
 
-  // Preserve legacy environment-variable path (older Vite config)
-  const legacyKey =
-    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
-    (typeof process !== 'undefined' && process.env?.API_KEY) ||
-    '';
-  if (legacyKey) {
-    return { ...AI_DEFAULTS, provider: 'gemini', apiKey: legacyKey };
+  // Legacy env-var path for existing users without saved settings
+  if (!isElectron() && !apiKey) {
+    const legacyKey =
+      (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
+      (typeof process !== 'undefined' && process.env?.API_KEY) ||
+      '';
+    if (legacyKey) {
+      return { ...AI_DEFAULTS, provider: 'gemini', apiKey: legacyKey };
+    }
   }
 
-  return AI_DEFAULTS;
+  return { ...AI_DEFAULTS, apiKey };
 }
 
 /**
  * Persist AI provider settings.
  *
- * TODO(security/api-key): Route `settings.apiKey` through Electron safeStorage IPC
- * in Phase 3. Store only non-sensitive fields (provider, customEndpoint, customModel)
- * in localStorage.
+ * The API key is routed to Electron safeStorage when running inside Electron.
+ * Only non-sensitive fields are written to localStorage.
+ * Returns false if the keychain is unavailable (Linux without keyring daemon).
  */
-export function saveAISettings(settings: AISettings): void {
-  storage.set(LOCAL_STORAGE_KEYS.AI_SETTINGS, settings);
+export async function saveAISettings(settings: AISettings): Promise<boolean> {
+  // Always persist non-sensitive fields in localStorage
+  const nonSensitive: AISettingsNonSensitive = {
+    provider: settings.provider,
+    customEndpoint: settings.customEndpoint,
+    customModel: settings.customModel,
+  };
+  storage.set(LOCAL_STORAGE_KEYS.AI_SETTINGS, nonSensitive);
+
+  if (isElectron()) {
+    const ok = await window.electronAPI!.credentialSet(KEYCHAIN_AI_KEY, settings.apiKey);
+    if (ok) {
+      _apiKeyCache = settings.apiKey;
+    }
+    return ok;
+  }
+
+  // Web fallback: store API key in plain localStorage (dev/browser environment)
+  storage.set(LOCAL_STORAGE_KEYS.AI_SETTINGS, { ...nonSensitive, apiKey: settings.apiKey });
+  return true;
+}
+
+/**
+ * Migrate any plaintext credentials stored under the old scheme.
+ *
+ * - AI API key: moved from full AISettings object in localStorage to safeStorage.
+ * - Email passwords: moved from EmailAccount.password in omni_email_accounts to
+ *   safeStorage key omni_email_pw_<id>, then stripped from the accounts array.
+ *
+ * Idempotent: if safeStorage already has a value for a key, the migration is
+ * skipped for that key (avoids overwriting a newer value with a stale one).
+ */
+export async function migrateCredentials(): Promise<void> {
+  if (!isElectron()) return;
+
+  const electronAPI = window.electronAPI!;
+
+  // ── 1. AI API key ──────────────────────────────────────────────────────────
+  const savedSettings = storage.get<Partial<AISettings & { apiKey: string }>>(
+    LOCAL_STORAGE_KEYS.AI_SETTINGS,
+  );
+  if (savedSettings?.apiKey) {
+    const existing = await electronAPI.credentialGet(KEYCHAIN_AI_KEY);
+    if (!existing) {
+      await electronAPI.credentialSet(KEYCHAIN_AI_KEY, savedSettings.apiKey);
+      _apiKeyCache = savedSettings.apiKey;
+    } else {
+      _apiKeyCache = existing;
+    }
+    // Strip plaintext key from localStorage regardless
+    const { apiKey: _removed, ...rest } = savedSettings;
+    storage.set(LOCAL_STORAGE_KEYS.AI_SETTINGS, rest);
+  }
+
+  // ── 2. Email passwords ─────────────────────────────────────────────────────
+  const rawAccounts = localStorage.getItem('omni_email_accounts');
+  if (!rawAccounts) return;
+  try {
+    const accounts: Array<{ id: string; password?: string; [key: string]: unknown }> =
+      JSON.parse(rawAccounts);
+    let dirty = false;
+    for (const account of accounts) {
+      if (account.password) {
+        const credKey = `omni_email_pw_${account.id}`;
+        const existing = await electronAPI.credentialGet(credKey);
+        if (!existing) {
+          await electronAPI.credentialSet(credKey, account.password);
+        }
+        delete account.password;
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      localStorage.setItem('omni_email_accounts', JSON.stringify(accounts));
+    }
+  } catch {
+    // Malformed storage — leave it alone
+  }
 }

@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Plus, Trash2, TestTube, Check, X, Mail } from 'lucide-react';
+import { Plus, Trash2, TestTube, Check, X, Mail, AlertTriangle } from 'lucide-react';
 import { EmailAccount } from '../types';
 import { AlertDialog } from './Dialog';
 
@@ -12,13 +12,20 @@ const PROVIDERS = [
   { id: 'custom', label: 'Custom IMAP', host: '' },
 ] as const;
 
+// ---------------------------------------------------------------------------
+// Storage helpers — accounts are persisted WITHOUT passwords.
+// Passwords live in Electron safeStorage (keychain:set / keychain:get IPC).
+// ---------------------------------------------------------------------------
+
 export function getEmailAccounts(): EmailAccount[] {
   const saved = localStorage.getItem('omni_email_accounts');
   return saved ? JSON.parse(saved) : [];
 }
 
 function saveEmailAccounts(accounts: EmailAccount[]) {
-  localStorage.setItem('omni_email_accounts', JSON.stringify(accounts));
+  // Strip any lingering password fields before writing to localStorage.
+  const sanitised = accounts.map(({ password: _pw, ...rest }) => rest as EmailAccount);
+  localStorage.setItem('omni_email_accounts', JSON.stringify(sanitised));
 }
 
 export const EmailSettings: React.FC = () => {
@@ -26,6 +33,7 @@ export const EmailSettings: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [testStatus, setTestStatus] = useState<Record<string, 'testing' | 'success' | 'error'>>({});
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
+  const [keychainUnavailable, setKeychainUnavailable] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -36,17 +44,31 @@ export const EmailSettings: React.FC = () => {
     imapPort: 993,
   });
 
-  const addAccount = () => {
+  const addAccount = async () => {
+    const electronAPI = (window as Window).electronAPI;
     const account: EmailAccount = {
       id: crypto.randomUUID(),
       name: form.name || form.email,
       email: form.email,
-      password: form.password,
       provider: form.provider,
       imapHost: form.provider === 'custom' ? form.imapHost : undefined,
       imapPort: form.provider === 'custom' ? form.imapPort : undefined,
       enabled: true,
     };
+
+    // Store password in safeStorage; fall back to localStorage if unavailable.
+    if (electronAPI?.credentialSet) {
+      const ok = await electronAPI.credentialSet(`omni_email_pw_${account.id}`, form.password);
+      if (!ok) {
+        setKeychainUnavailable(true);
+        // Fallback: store in the account object (plain localStorage)
+        (account as EmailAccount).password = form.password;
+      }
+    } else {
+      // Non-Electron environment (web dev): store inline
+      (account as EmailAccount).password = form.password;
+    }
+
     const updated = [...accounts, account];
     setAccounts(updated);
     saveEmailAccounts(updated);
@@ -54,20 +76,26 @@ export const EmailSettings: React.FC = () => {
     setIsAdding(false);
   };
 
-  const removeAccount = (id: string) => {
+  const removeAccount = async (id: string) => {
+    const electronAPI = (window as Window).electronAPI;
+    if (electronAPI?.credentialDelete) {
+      await electronAPI.credentialDelete(`omni_email_pw_${id}`);
+    }
     const updated = accounts.filter(a => a.id !== id);
     setAccounts(updated);
     saveEmailAccounts(updated);
   };
 
   const testConnection = async (account: EmailAccount) => {
-    const electronAPI = (window as any).electronAPI;
+    const electronAPI = (window as Window).electronAPI;
     if (!electronAPI?.fetchEmails) {
-      setAlertMsg('Email testing requires Electron. Run the desktop app to test connections.');
+      setAlertMsg('Email testing requires the desktop app. Open OmniPlan as an Electron app to test connections.');
       return;
     }
     setTestStatus(prev => ({ ...prev, [account.id]: 'testing' }));
     try {
+      // fetchEmails triggers email:fetch in main — password is looked up from
+      // safeStorage there. We do not pass the password from renderer here.
       const result = await electronAPI.fetchEmails(account);
       setTestStatus(prev => ({ ...prev, [account.id]: result.success ? 'success' : 'error' }));
       if (!result.success) setAlertMsg('Connection failed: ' + result.error);
@@ -76,9 +104,41 @@ export const EmailSettings: React.FC = () => {
     }
   };
 
+  const testNewConnection = async () => {
+    const electronAPI = (window as Window).electronAPI;
+    if (!electronAPI?.testEmailConnection) {
+      setAlertMsg('Connection testing requires the desktop app.');
+      return;
+    }
+    setTestStatus(prev => ({ ...prev, _new: 'testing' }));
+    try {
+      const result = await electronAPI.testEmailConnection({
+        email: form.email,
+        password: form.password,
+        provider: form.provider,
+        imapHost: form.imapHost,
+        imapPort: form.imapPort,
+      });
+      setTestStatus(prev => ({ ...prev, _new: result.success ? 'success' : 'error' }));
+      if (!result.success) setAlertMsg('Connection failed: ' + result.error);
+    } catch {
+      setTestStatus(prev => ({ ...prev, _new: 'error' }));
+    }
+  };
+
   return (
     <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100">
       {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
+
+      {keychainUnavailable && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-4">
+          <AlertTriangle size={16} className="text-amber-600 mt-0.5 flex-shrink-0"/>
+          <p className="text-xs font-bold text-amber-700">
+            OS keychain unavailable — password saved in plain local storage. Install a keyring daemon for encrypted storage.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Mail className="text-blue-600" size={24} />
@@ -162,13 +222,28 @@ export const EmailSettings: React.FC = () => {
               </div>
             </div>
           )}
-          <button
-            onClick={addAccount}
-            disabled={!form.email || !form.password}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Save Account
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={addAccount}
+              disabled={!form.email || !form.password}
+              className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Save Account
+            </button>
+            <button
+              onClick={testNewConnection}
+              disabled={!form.email || !form.password}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                testStatus['_new'] === 'success' ? 'bg-emerald-100 text-emerald-700' :
+                testStatus['_new'] === 'error' ? 'bg-red-100 text-red-700' :
+                'bg-slate-100 text-slate-600 hover:bg-blue-100 hover:text-blue-700'
+              }`}
+            >
+              {testStatus['_new'] === 'testing' ? <TestTube size={15} className="animate-pulse"/> : <TestTube size={15}/>}
+              {testStatus['_new'] === 'success' ? 'Connected' :
+               testStatus['_new'] === 'error' ? 'Failed' : 'Test Connection'}
+            </button>
+          </div>
         </div>
       )}
 

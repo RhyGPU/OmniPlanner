@@ -1,5 +1,68 @@
-const { app, BrowserWindow, ipcMain, shell, net } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, net, safeStorage } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+// ---------------------------------------------------------------------------
+// Credential store — backed by Electron safeStorage (OS keychain encryption).
+// Encrypted blobs are persisted to a file in the app's userData directory.
+//
+// SECURITY MODEL:
+//   - Encryption is only as strong as safeStorage.isEncryptionAvailable().
+//   - On Linux without a keyring daemon the OS-level key is unavailable;
+//     safeStorage falls back to a weaker key. We surface this via
+//     keychain:is-available so the renderer can warn the user.
+//   - Credentials are NEVER exported in backups (see dataManager.ts).
+//   - After a backup restore users must re-enter credentials.
+// ---------------------------------------------------------------------------
+
+function getCredentialFilePath() {
+  return path.join(app.getPath('userData'), 'credentials.enc.json');
+}
+
+function readCredentialStore() {
+  try {
+    return JSON.parse(fs.readFileSync(getCredentialFilePath(), 'utf-8'));
+  } catch { return {}; }
+}
+
+function writeCredentialStore(store) {
+  try {
+    // mode 0o600 = owner read/write only
+    fs.writeFileSync(getCredentialFilePath(), JSON.stringify(store), { encoding: 'utf-8', mode: 0o600 });
+  } catch (err) {
+    console.error('[OmniPlan] Failed to write credential store:', err);
+  }
+}
+
+/** Decrypt and return a stored credential, or null if absent / unavailable. */
+function getCredential(key) {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  const store = readCredentialStore();
+  if (!store[key]) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(store[key], 'base64'));
+  } catch { return null; }
+}
+
+/** Encrypt and store a credential. Returns false if safeStorage is unavailable. */
+function setCredential(key, value) {
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  try {
+    const encrypted = safeStorage.encryptString(value);
+    const store = readCredentialStore();
+    store[key] = encrypted.toString('base64');
+    writeCredentialStore(store);
+    return true;
+  } catch { return false; }
+}
+
+function deleteCredential(key) {
+  const store = readCredentialStore();
+  if (key in store) {
+    delete store[key];
+    writeCredentialStore(store);
+  }
+}
 
 // ─── Windows: relaunch with admin elevation if not already elevated ───────────
 // Must run before app.whenReady(). AI and email both need network access that
@@ -186,17 +249,46 @@ ipcMain.on('open-external', (_event, url) => {
   }
 });
 
+// Credential management IPC — renderer calls these to read/write safeStorage.
+// Passwords stored here never transit IPC again after save: email handlers
+// call getCredential() directly from the main process.
+ipcMain.handle('keychain:is-available', () => safeStorage.isEncryptionAvailable());
+ipcMain.handle('keychain:set', (_event, key, value) => setCredential(key, value));
+ipcMain.handle('keychain:get', (_event, key) => getCredential(key));
+ipcMain.handle('keychain:delete', (_event, key) => { deleteCredential(key); });
+
+// One-shot connection test — accepts credentials inline for the pre-save test
+// flow. Does NOT store credentials; caller is responsible for calling
+// keychain:set afterwards if the test passes.
+ipcMain.handle('email:test-connection', async (_event, { email, password, provider, imapHost, imapPort }) => {
+  try {
+    const { ImapFlow } = require('imapflow');
+    const hostConfig = IMAP_HOSTS[provider] || { host: imapHost, port: imapPort || 993 };
+    const client = new ImapFlow({
+      host: hostConfig.host, port: hostConfig.port, secure: true,
+      auth: { user: email, pass: password }, logger: false,
+    });
+    await client.connect();
+    await client.logout();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // Email IMAP handlers
 ipcMain.handle('email:fetch', async (_event, account) => {
   try {
     const { ImapFlow } = require('imapflow');
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+    const password = getCredential(`omni_email_pw_${account.id}`);
+    if (!password) return { success: false, error: 'No stored credentials for this account. Re-enter your password in Settings.' };
 
     const client = new ImapFlow({
       host: hostConfig.host,
       port: hostConfig.port,
       secure: true,
-      auth: { user: account.email, pass: account.password },
+      auth: { user: account.email, pass: password },
       logger: false,
     });
 
@@ -239,12 +331,14 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
   try {
     const { ImapFlow } = require('imapflow');
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+    const password = getCredential(`omni_email_pw_${account.id}`);
+    if (!password) return { success: false, error: 'No stored credentials for this account.' };
 
     const client = new ImapFlow({
       host: hostConfig.host,
       port: hostConfig.port,
       secure: true,
-      auth: { user: account.email, pass: account.password },
+      auth: { user: account.email, pass: password },
       logger: false,
     });
 

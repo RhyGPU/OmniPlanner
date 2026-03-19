@@ -12,6 +12,7 @@ import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit } from './types';
 import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
 import { saveGoalItems } from './utils/goalManager';
+import { initAICredentials, migrateCredentials } from './services/storage/secureSettings';
 import { formatDateKey } from './constants';
 import { storage, LOCAL_STORAGE_KEYS } from './services/storage';
 
@@ -77,6 +78,12 @@ export default function App() {
   const [goalItems, setGoalItems] = useState<GoalItem[]>(
     () => storage.get<GoalItem[]>(LOCAL_STORAGE_KEYS.GOAL_ITEMS) ?? [],
   );
+
+  // One-time startup: migrate plaintext credentials to safeStorage, then
+  // warm the renderer-side API key cache. Both operations are idempotent.
+  useEffect(() => {
+    migrateCredentials().then(() => initAICredentials());
+  }, []);
 
   // Global Persistence Effect
   useEffect(() => {
@@ -268,7 +275,7 @@ export default function App() {
                 goalItems={goalItems}
               />
             )}
-            {activeTab === Tab.Goals && <GoalsView goalItems={goalItems} setGoalItems={setGoalItems} />}
+            {activeTab === Tab.Goals && <GoalsView goalItems={goalItems} setGoalItems={setGoalItems} allWeeks={allWeeks} />}
             {activeTab === Tab.Data && (
               <DataView
                 handleSaveData={handleSaveData}
