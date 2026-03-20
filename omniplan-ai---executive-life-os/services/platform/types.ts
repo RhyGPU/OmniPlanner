@@ -2,13 +2,14 @@
  * Platform service interfaces for OmniPlanner.
  *
  * These interfaces define the contract for capabilities that differ
- * between platforms (Electron desktop, web browser, future mobile shells).
+ * between platforms (Electron desktop, web browser, Capacitor mobile).
  * Domain logic and UI components import these interfaces — never the
  * concrete implementations — so platform-specific code stays isolated.
  *
  * Implementations:
- *   services/platform/electron.ts — Electron desktop (current production)
- *   services/platform/web.ts      — Web browser / null fallbacks
+ *   services/platform/electron.ts   — Electron desktop (current production)
+ *   services/platform/capacitor.ts  — iOS / Android via Capacitor
+ *   services/platform/web.ts        — Web browser / null fallbacks
  *
  * Usage:
  *   import { platform } from '../services/platform';
@@ -136,6 +137,53 @@ export interface ShellService {
 }
 
 // ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+/** A single notification to schedule. */
+export interface PlannedNotification {
+  /** Stable numeric ID. Use constants from notificationScheduler.ts. */
+  id: number;
+  title: string;
+  body: string;
+  /** When the notification should fire. */
+  scheduledAt: Date;
+}
+
+/** Permission state for push / local notifications. */
+export type NotificationPermission = 'granted' | 'denied' | 'unavailable' | 'default';
+
+/**
+ * Local notification service.
+ *
+ * Capacitor (mobile): @capacitor/local-notifications — UNCalendarTrigger (iOS),
+ *   AlarmManager (Android). Requires explicit permission grant.
+ * Web browser: Web Notifications API + setTimeout scheduling. Works in
+ *   modern browsers when the tab is open; no persistence across sessions.
+ * Electron: Not implemented in Phase 10 — Electron has its own
+ *   notification APIs outside this service boundary. nullNotifications is used.
+ */
+export interface NotificationService {
+  /** True if this platform can schedule local notifications at all. */
+  isAvailable(): boolean;
+
+  /** Request notification permission from the OS. Returns the resulting state. */
+  requestPermission(): Promise<NotificationPermission>;
+
+  /**
+   * Schedule a local notification.
+   * Returns true if the notification was accepted by the platform.
+   */
+  schedule(notification: PlannedNotification): Promise<boolean>;
+
+  /** Cancel a previously scheduled notification by ID. */
+  cancel(id: number): Promise<void>;
+
+  /** Cancel all notifications scheduled by this app. */
+  cancelAll(): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
 // Aggregate
 // ---------------------------------------------------------------------------
 
@@ -145,4 +193,5 @@ export interface PlatformServices {
   email: EmailService;
   network: NetworkService;
   shell: ShellService;
+  notifications: NotificationService;
 }

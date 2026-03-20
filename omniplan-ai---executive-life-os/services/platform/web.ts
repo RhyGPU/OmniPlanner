@@ -17,6 +17,9 @@ import type {
   EmailAccountRef,
   EmailTestCredentials,
   NetworkService,
+  NotificationService,
+  NotificationPermission,
+  PlannedNotification,
   ShellService,
 } from './types';
 
@@ -90,5 +93,68 @@ export const webShell: ShellService = {
 
   quit(): void {
     // No-op — cannot quit a browser tab programmatically.
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Notification service — Web Notifications API + setTimeout scheduling
+// ---------------------------------------------------------------------------
+//
+// Only works while the tab is open.  Notifications do not persist across
+// browser restarts.  Users must grant Notification permission.
+// This is best-effort for the web/PWA shell; the full experience requires
+// the Capacitor native build.
+
+/** Tracks setTimeout handles so we can cancel them. */
+const _webNotifTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+export const webNotifications: NotificationService = {
+  isAvailable(): boolean {
+    return typeof window !== 'undefined' && 'Notification' in window;
+  },
+
+  async requestPermission(): Promise<NotificationPermission> {
+    if (!this.isAvailable()) return 'unavailable';
+    try {
+      const result = await Notification.requestPermission();
+      return result as NotificationPermission;
+    } catch {
+      return 'unavailable';
+    }
+  },
+
+  async schedule(notification: PlannedNotification): Promise<boolean> {
+    if (!this.isAvailable()) return false;
+    if (Notification.permission !== 'granted') return false;
+
+    const delayMs = notification.scheduledAt.getTime() - Date.now();
+    if (delayMs < 0) return false; // already in the past
+
+    // Clear any existing timer for this ID
+    const existing = _webNotifTimers.get(notification.id);
+    if (existing !== undefined) clearTimeout(existing);
+
+    const handle = setTimeout(() => {
+      _webNotifTimers.delete(notification.id);
+      new Notification(notification.title, { body: notification.body });
+    }, delayMs);
+
+    _webNotifTimers.set(notification.id, handle);
+    return true;
+  },
+
+  async cancel(id: number): Promise<void> {
+    const handle = _webNotifTimers.get(id);
+    if (handle !== undefined) {
+      clearTimeout(handle);
+      _webNotifTimers.delete(id);
+    }
+  },
+
+  async cancelAll(): Promise<void> {
+    for (const handle of _webNotifTimers.values()) {
+      clearTimeout(handle);
+    }
+    _webNotifTimers.clear();
   },
 };

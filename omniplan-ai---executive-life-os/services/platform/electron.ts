@@ -16,6 +16,8 @@ import type {
   EmailAccountRef,
   EmailTestCredentials,
   NetworkService,
+  NotificationService,
+  NotificationPermission,
   ShellService,
 } from './types';
 
@@ -90,5 +92,36 @@ export const electronShell: ShellService = {
 
   quit(): void {
     window.electronAPI!.quitApp();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Notification service — not implemented for Electron in Phase 10
+// ---------------------------------------------------------------------------
+//
+// Electron has its own notification APIs (Notification class + node-notifier).
+// Integrating them requires additional main-process IPC handlers not added in
+// this phase.  nullNotifications surfaces a clear unavailability signal so
+// callers (e.g. notificationScheduler) skip scheduling gracefully.
+
+export const nullNotifications: NotificationService = {
+  isAvailable(): boolean {
+    return false;
+  },
+
+  async requestPermission(): Promise<NotificationPermission> {
+    return 'unavailable';
+  },
+
+  async schedule(): Promise<boolean> {
+    return false;
+  },
+
+  async cancel(): Promise<void> {
+    // No-op
+  },
+
+  async cancelAll(): Promise<void> {
+    // No-op
   },
 };
