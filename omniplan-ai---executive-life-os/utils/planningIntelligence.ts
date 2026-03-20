@@ -1,5 +1,5 @@
 /**
- * Pure planning-intelligence selectors — Phase 5.
+ * Pure planning-intelligence selectors — Phase 5 + Phase 6.
  *
  * All functions are side-effect-free: they derive scheduling insights from
  * existing state (allWeeks, goalItems) without mutating anything.
@@ -220,4 +220,122 @@ export function getSuggestedFocusBlocks(
   }
 
   return suggestions;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: execution analytics selectors
+// ---------------------------------------------------------------------------
+
+/** Count of focus/task_block events this week (linked or unlinked). */
+export function getWeeklyFocusBlockCount(currentWeek: WeekData): number {
+  let count = 0;
+  for (const dayPlan of Object.values(currentWeek.dailyPlans)) {
+    for (const evt of dayPlan.events) {
+      if (evt.eventKind === 'focus' || evt.eventKind === 'task_block') count++;
+    }
+  }
+  return count;
+}
+
+/** Total minutes of focus/task_block events this week (linked or unlinked). */
+export function getWeeklyScheduledMinutes(currentWeek: WeekData): number {
+  let minutes = 0;
+  for (const dayPlan of Object.values(currentWeek.dailyPlans)) {
+    for (const evt of dayPlan.events) {
+      if (evt.eventKind === 'focus' || evt.eventKind === 'task_block') {
+        minutes += evt.duration * 60;
+      }
+    }
+  }
+  return minutes;
+}
+
+/**
+ * Per-day count of unscheduled linked daily todos.
+ * Returns only dateKeys that have at least one unscheduled linked task.
+ */
+export function getUnscheduledLinkedTaskCountsByDay(
+  currentWeek: WeekData,
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const [dateKey, dayPlan] of Object.entries(currentWeek.dailyPlans)) {
+    const count = dayPlan.todos.filter(
+      t =>
+        !t.done &&
+        t.parentGoalId &&
+        !isTodoScheduledOnDay(t.id, t.parentGoalId, dayPlan.events),
+    ).length;
+    if (count > 0) result[dateKey] = count;
+  }
+  return result;
+}
+
+/** True if the day has at least one focus or task_block event linked to a goal. */
+export function dayHasLinkedFocusBlocks(dateKey: string, currentWeek: WeekData): boolean {
+  const dayPlan = currentWeek.dailyPlans[dateKey];
+  if (!dayPlan) return false;
+  return dayPlan.events.some(
+    evt =>
+      (evt.eventKind === 'focus' || evt.eventKind === 'task_block') &&
+      evt.parentGoalId,
+  );
+}
+
+export interface WeeklyReviewSummary {
+  /** Active goals with at least one calendar block this week. */
+  goalsWithCalendarSupport: number;
+  /** Active goals with linked work this week but no calendar blocks. */
+  goalsWithLinkedWorkButNoBlocks: number;
+  /** Count of focus/task_block events (linked or unlinked). */
+  focusBlockCount: number;
+  /** Total minutes of focus/task_block events. */
+  scheduledFocusMinutes: number;
+  /** Linked todos (weekly + daily this week) that are marked done. */
+  completedLinkedTasks: number;
+  /** Linked todos (weekly + daily this week) that are not done and have no block. */
+  unscheduledLinkedTasks: number;
+}
+
+/**
+ * Aggregates execution analytics for the current week.
+ * Purely derived — no mutations, no AI.
+ */
+export function getWeeklyReviewSummary(
+  goalItems: GoalItem[],
+  currentWeek: WeekData,
+): WeeklyReviewSummary {
+  const activeGoals = goalItems.filter(g => g.status === 'active');
+  const weeklyTodos = [...currentWeek.goals.business, ...currentWeek.goals.personal];
+  const dailyTodos = Object.values(currentWeek.dailyPlans).flatMap(dp => dp.todos);
+
+  let goalsWithCalendarSupport = 0;
+  let goalsWithLinkedWorkButNoBlocks = 0;
+
+  for (const g of activeGoals) {
+    const hasLinkedWork =
+      weeklyTodos.some(t => t.parentGoalId === g.id) ||
+      dailyTodos.some(t => t.parentGoalId === g.id);
+    if (!hasLinkedWork) continue;
+    if (getGoalCalendarSupport(g.id, currentWeek) > 0) {
+      goalsWithCalendarSupport++;
+    } else {
+      goalsWithLinkedWorkButNoBlocks++;
+    }
+  }
+
+  const allLinked = [
+    ...weeklyTodos.filter(t => t.parentGoalId),
+    ...dailyTodos.filter(t => t.parentGoalId),
+  ];
+
+  return {
+    goalsWithCalendarSupport,
+    goalsWithLinkedWorkButNoBlocks,
+    focusBlockCount: getWeeklyFocusBlockCount(currentWeek),
+    scheduledFocusMinutes: getWeeklyScheduledMinutes(currentWeek),
+    completedLinkedTasks: allLinked.filter(t => t.done).length,
+    unscheduledLinkedTasks:
+      getUnscheduledWeeklyLinkedTodos(currentWeek).length +
+      getUnscheduledDailyLinkedTodos(currentWeek).length,
+  };
 }

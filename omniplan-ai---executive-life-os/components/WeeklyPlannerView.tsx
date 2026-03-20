@@ -12,7 +12,13 @@ import { getMilestoneForStreak, getFlameColorClass } from '../utils/habitMilesto
 import { CheckableList } from './CheckableList';
 import { ConfirmDialog } from './Dialog';
 import { predictMainEvent } from '../services/ai';
-import { getUnscheduledWeeklyLinkedTodos } from '../utils/planningIntelligence';
+import {
+  getUnscheduledWeeklyLinkedTodos,
+  getUnscheduledLinkedTaskCountsByDay,
+  dayHasLinkedFocusBlocks,
+  getWeeklyReviewSummary,
+  WeeklyReviewSummary,
+} from '../utils/planningIntelligence';
 
 const GOAL_TIMEFRAME_LABELS: Record<string, string> = {
   ten_year: '10Y', five_year: '5Y', three_year: '3Y',
@@ -70,6 +76,8 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   const activeHabits = (currentWeek.habits || []).filter(h => !h.deletedAt && !h.archived);
   const focusItems = useMemo(() => getFocusGoalItems(goalItems, currentDate), [goalItems, currentDate]);
   const unscheduledLinked = useMemo(() => getUnscheduledWeeklyLinkedTodos(currentWeek), [currentWeek]);
+  const unscheduledByDay = useMemo(() => getUnscheduledLinkedTaskCountsByDay(currentWeek), [currentWeek]);
+  const weeklyReview = useMemo(() => getWeeklyReviewSummary(goalItems, currentWeek), [goalItems, currentWeek]);
 
   // Auto-archive stale habits (only runs once when week changes)
   useEffect(() => {
@@ -476,6 +484,60 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                     </button>
                 </div>
 
+                {/* Week Review — collapsed by default, shows execution analytics */}
+                <details className="border-b border-slate-200 group/review">
+                  <summary className="flex items-center gap-1.5 px-5 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest cursor-pointer select-none hover:text-slate-600 transition-colors list-none">
+                    <Clock size={11}/>
+                    Week Review
+                    {(weeklyReview.unscheduledLinkedTasks > 0 || weeklyReview.goalsWithLinkedWorkButNoBlocks > 0) && (
+                      <span className="ml-auto w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Has unscheduled linked work"/>
+                    )}
+                  </summary>
+                  <div className="px-5 pb-4 space-y-2 bg-slate-50/60">
+                    {[
+                      weeklyReview.focusBlockCount > 0 && {
+                        label: 'Focus blocks',
+                        value: `${weeklyReview.focusBlockCount} · ${weeklyReview.scheduledFocusMinutes >= 60
+                          ? `${+(weeklyReview.scheduledFocusMinutes / 60).toFixed(1)}h`
+                          : `${Math.round(weeklyReview.scheduledFocusMinutes)}m`}`,
+                        color: 'text-purple-600',
+                      },
+                      weeklyReview.goalsWithCalendarSupport > 0 && {
+                        label: 'Goals with time support',
+                        value: String(weeklyReview.goalsWithCalendarSupport),
+                        color: 'text-emerald-600',
+                      },
+                      weeklyReview.goalsWithLinkedWorkButNoBlocks > 0 && {
+                        label: 'Goals needing blocks',
+                        value: String(weeklyReview.goalsWithLinkedWorkButNoBlocks),
+                        color: 'text-amber-600',
+                      },
+                      weeklyReview.completedLinkedTasks > 0 && {
+                        label: 'Linked tasks done',
+                        value: String(weeklyReview.completedLinkedTasks),
+                        color: 'text-slate-600',
+                      },
+                      weeklyReview.unscheduledLinkedTasks > 0 && {
+                        label: 'Still unscheduled',
+                        value: String(weeklyReview.unscheduledLinkedTasks),
+                        color: 'text-amber-600',
+                      },
+                    ].map((row, i) =>
+                      row ? (
+                        <div key={i} className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-500 font-medium">{row.label}</span>
+                          <span className={`text-[10px] font-black ${row.color}`}>{row.value}</span>
+                        </div>
+                      ) : null,
+                    )}
+                    {weeklyReview.focusBlockCount === 0 &&
+                      weeklyReview.completedLinkedTasks === 0 &&
+                      weeklyReview.goalsWithCalendarSupport === 0 && (
+                        <p className="text-[10px] text-slate-400 italic">No linked work recorded this week yet.</p>
+                    )}
+                  </div>
+                </details>
+
                 {/* Focus Goals — active annual + this month's monthly goals */}
                 <div className="flex flex-col border-b border-slate-200 p-5 bg-white/60">
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
@@ -637,7 +699,22 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                         <div className={`text-[9px] font-black uppercase tracking-widest ${isToday ? 'text-blue-100' : 'text-slate-400'}`}>{DAYS[idx]}</div>
                                         <div className={`text-xl font-black ${isToday ? 'text-white' : 'text-slate-900'}`}>{date.getDate()}</div>
                                     </div>
-                                    {isToday && <div className="w-2 h-2 rounded-full bg-white animate-ping"></div>}
+                                    <div className="flex items-center gap-1">
+                                      {isToday && <div className="w-2 h-2 rounded-full bg-white animate-ping"/>}
+                                      {/* Purple dot when day has linked focus blocks */}
+                                      {!isToday && dayHasLinkedFocusBlocks(formatDateKey(date), currentWeek) && (
+                                        <div className="w-2 h-2 rounded-full bg-purple-400" title="Focus blocks scheduled"/>
+                                      )}
+                                      {/* Amber count for unscheduled linked daily tasks */}
+                                      {(unscheduledByDay[formatDateKey(date)] ?? 0) > 0 && (
+                                        <span
+                                          title={`${unscheduledByDay[formatDateKey(date)]} unscheduled linked task${unscheduledByDay[formatDateKey(date)] > 1 ? 's' : ''}`}
+                                          className={`text-[9px] font-black px-1.5 py-0.5 rounded-full leading-none ${isToday ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-600'}`}
+                                        >
+                                          {unscheduledByDay[formatDateKey(date)]}
+                                        </span>
+                                      )}
+                                    </div>
                                 </div>
                             </div>
                         )
