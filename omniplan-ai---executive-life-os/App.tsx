@@ -16,7 +16,8 @@ import { initAICredentials, migrateCredentials, runMobileSecureMigration } from 
 import { getNotificationSettings, saveNotificationSettings } from './services/storage/notificationSettings';
 import { syncReminders } from './utils/reminderSync';
 import { formatDateKey } from './constants';
-import { storage, LOCAL_STORAGE_KEYS } from './services/storage';
+import { storage, LOCAL_STORAGE_KEYS, getStorageStatus } from './services/storage';
+import type { StorageStatus } from './services/storage';
 
 const INITIAL_EMAILS: Email[] = [
   { id: 1, provider: 'internal', sender: "OmniPlan Core", subject: "Executive System Ready", preview: "Your dashboard is ready...", body: "Welcome to OmniPlan!\n\nThis system is designed for high-performance scheduling. Your weekly planner, monthly overview, and life vision board are now active.\n\nUse the 'AI Optimize Week' feature to automatically generate focus themes based on your historical data and current tasks.\n\nBest,\nOmniPlan Team", time: "09:00 AM", read: false },
@@ -27,6 +28,9 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [aiLoading, setAiLoading] = useState(false);
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
+
+  // Storage health — read once at mount (set synchronously during startup before render)
+  const [storageStatus] = useState<StorageStatus>(() => getStorageStatus());
 
   // Per-tab zoom levels
   const [zoomLevels, setZoomLevels] = useState<Record<string, number>>(
@@ -252,20 +256,46 @@ export default function App() {
     downloadBackup();
   }, []);
 
-  const handleLoadData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  /**
+   * Restore handler — validates, writes to storage, then reloads the page.
+   *
+   * Why reload instead of updating React state:
+   *   1. Eliminates the double-write (uploadBackup already persisted to storage).
+   *   2. Ensures schema migrations re-run for old backups (importAllData may
+   *      have reset schema version to 1 to trigger migration v2 on next startup).
+   *   3. Gives reminder sync a clean startup trigger with the restored data.
+   *   4. Prevents mixed state between old React state and new storage content.
+   *
+   * Device-local state that is intentionally NOT restored:
+   *   - API keys / email passwords (secure credential storage, device-local)
+   *   - Notification settings (device preference, not planner data)
+   *   - Zoom levels (UI state)
+   * Users restoring to a new device must re-enter credentials after restore.
+   */
+  const handleLoadData = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const data = await uploadBackup(file);
-      setAllWeeks(data.allWeeks);
-      setEmails(data.emails.length > 0 ? data.emails : emails);
-      if (data.goalItems && data.goalItems.length > 0) {
-        setGoalItems(data.goalItems);
-      }
+      const { warnings } = await uploadBackup(file);
+
+      // Build the restore confirmation message shown before reload
+      const warningText = warnings.length > 0
+        ? `\n\nNotes:\n• ${warnings.join('\n• ')}`
+        : '';
+
+      setAlertMsg(
+        `Backup restored successfully.${warningText}\n\n` +
+        'The app will reload now to load your data cleanly.\n\n' +
+        'Device-local settings (API keys, email passwords, notification preferences) ' +
+        'were not changed — they live outside the backup by design.',
+      );
+
+      // Reload after a short delay so the alert is visible
+      setTimeout(() => window.location.reload(), 2500);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("Restore failed:", message);
-      setAlertMsg("Restore failed: " + message);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[OmniPlanner] Restore failed:', message);
+      setAlertMsg('Restore failed: ' + message);
     }
   };
 
@@ -279,6 +309,23 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900 select-none overflow-hidden antialiased">
       {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
+
+      {/* Storage degraded warning banner — shown when IDB is unavailable or quota exceeded */}
+      {storageStatus.health === 'degraded' && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-amber-50 border-t-2 border-amber-300 px-4 py-2 flex items-center gap-3 text-sm">
+          <span className="text-amber-600 font-black shrink-0">⚠ Storage limited</span>
+          <span className="text-amber-800 font-medium flex-1 truncate">
+            {storageStatus.degradedReason ?? 'Storage backend is degraded.'}
+          </span>
+          <button
+            onClick={handleSaveData}
+            className="shrink-0 bg-amber-600 text-white font-bold px-3 py-1 rounded-lg hover:bg-amber-700 transition-colors text-xs"
+          >
+            Export backup
+          </button>
+        </div>
+      )}
+
       <Sidebar
         emailsCount={emails.filter(e => !e.read).length}
         activeTab={activeTab}

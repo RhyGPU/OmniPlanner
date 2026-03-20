@@ -31,6 +31,7 @@
  */
 
 import type { StorageAdapter } from './index';
+import { setStorageDegraded } from './storageHealth';
 
 // ---------------------------------------------------------------------------
 // IDB helpers (promise wrappers)
@@ -203,12 +204,27 @@ export class IndexedDBAdapter implements StorageAdapter {
     const raw = JSON.stringify(value);
     this.cache.set(key, raw);
 
-    // Write-through: fire-and-forget IDB transaction
+    // Write-through: fire-and-forget IDB transaction.
+    // If the write fails, the in-memory cache is still correct for this session.
+    // A degraded-storage signal is emitted so the UI can warn the user.
     const tx = this.db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).put(raw, key);
-    txDone(tx).catch(e =>
-      console.warn('[storage] IndexedDB write failed for key', key, e),
-    );
+    txDone(tx).catch(e => {
+      const isQuota =
+        e instanceof DOMException &&
+        (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+      if (isQuota) {
+        setStorageDegraded(
+          'Storage quota exceeded. Your current session data is safe in memory, ' +
+            'but changes may not persist after you close the tab. ' +
+            'Export a backup now to protect your data.',
+          'indexeddb',
+        );
+        console.error('[storage] IndexedDB quota exceeded — write failed for key', key);
+      } else {
+        console.warn('[storage] IndexedDB write failed for key', key, e);
+      }
+    });
   }
 
   remove(key: string): void {

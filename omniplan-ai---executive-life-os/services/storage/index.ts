@@ -18,6 +18,10 @@
  *   because `storage` is a proxy object that delegates to `_delegate`.
  */
 
+import { setStorageReady, setStorageDegraded } from './storageHealth';
+export { getStorageStatus } from './storageHealth';
+export type { StorageStatus, StorageHealth, StorageBackend } from './storageHealth';
+
 // ---------------------------------------------------------------------------
 // StorageAdapter interface
 // ---------------------------------------------------------------------------
@@ -125,17 +129,24 @@ export function setStorageAdapter(adapter: StorageAdapter): void {
  * the backend.
  */
 export async function initStorage(useIDB: boolean): Promise<void> {
-  if (!useIDB) return;
+  if (!useIDB) {
+    // Electron path — localStorage is always the backend. Always healthy.
+    setStorageReady('localstorage');
+    return;
+  }
   try {
     const { IndexedDBAdapter } = await import('./indexeddb');
     const idb = await IndexedDBAdapter.create();
     setStorageAdapter(idb);
+    setStorageReady('indexeddb');
   } catch (e) {
-    console.warn(
-      '[storage] IndexedDB unavailable — falling back to localStorage.',
-      'Local planner data will work but is limited to ~5 MB quota.',
-      e,
-    );
+    const reason =
+      'IndexedDB is unavailable on this device or browser ' +
+      '(private/incognito mode, storage denied, or quota exceeded). ' +
+      'Your planner data is stored in localStorage (~5 MB limit). ' +
+      'Export a backup to protect your data.';
+    console.warn('[storage] IndexedDB unavailable — falling back to localStorage.', e);
+    setStorageDegraded(reason, 'localstorage');
   }
 }
 

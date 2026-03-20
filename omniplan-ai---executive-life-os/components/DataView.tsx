@@ -12,7 +12,8 @@ import { platform } from '../services/platform';
 
 interface DataViewProps {
   handleSaveData: () => void;
-  handleLoadData: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  /** Async — validates backup before writing; shows alert then reloads on success. */
+  handleLoadData: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
   onImportIcsEvents: (events: { date: Date; event: CalendarEvent }[]) => void;
   notificationSettings: NotificationSettings;
   onNotificationSettingsChange: (settings: NotificationSettings) => void;
@@ -28,20 +29,27 @@ export const DataView: React.FC<DataViewProps> = ({
     const fileInputRef = useRef<HTMLInputElement>(null);
     const icsInputRef = useRef<HTMLInputElement>(null);
     const [dragOver, setDragOver] = useState(false);
-    const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error' | 'restoring'>('idle');
     const [icsStatus, setIcsStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [icsCount, setIcsCount] = useState(0);
     const [showNukeConfirm, setShowNukeConfirm] = useState(false);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        handleLoadData(e);
-        setUploadStatus('success');
-        setTimeout(() => setUploadStatus('idle'), 3000);
+    const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        setUploadStatus('restoring');
+        try {
+            await handleLoadData(e);
+            // Success: App.tsx will show an alert and schedule a reload.
+            // Keep 'restoring' state — page will reload before idle fires.
+            setUploadStatus('success');
+        } catch {
+            setUploadStatus('error');
+            setTimeout(() => setUploadStatus('idle'), 4000);
+        }
         // Reset the file input so the same file can be re-uploaded
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
-    };
+    }, [handleLoadData]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -158,8 +166,10 @@ export const DataView: React.FC<DataViewProps> = ({
                     className={`group bg-slate-50 border-2 p-10 rounded-[2.5rem] relative transition-all duration-500 ${
                         dragOver
                             ? 'border-emerald-500 bg-emerald-50 shadow-2xl scale-[1.02]'
-                            : uploadStatus === 'success'
+                            : uploadStatus === 'success' || uploadStatus === 'restoring'
                             ? 'border-emerald-500 bg-emerald-50/50'
+                            : uploadStatus === 'error'
+                            ? 'border-red-300 bg-red-50/50'
                             : 'border-slate-50 hover:border-emerald-600 hover:bg-white hover:shadow-2xl'
                     }`}
                     onDrop={handleDrop}
@@ -172,24 +182,40 @@ export const DataView: React.FC<DataViewProps> = ({
                         onChange={handleFileChange}
                         accept=".json"
                         className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                        disabled={uploadStatus === 'restoring'}
                     />
-                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-8 group-hover:scale-110 transition-all shadow-xl ${
-                        uploadStatus === 'success'
+                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-8 transition-all shadow-xl ${
+                        uploadStatus === 'success' || uploadStatus === 'restoring'
                             ? 'bg-emerald-600 text-white shadow-emerald-100/50'
-                            : 'bg-emerald-100 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white shadow-emerald-100/50'
+                            : uploadStatus === 'error'
+                            ? 'bg-red-100 text-red-600 shadow-red-100/50'
+                            : 'bg-emerald-100 text-emerald-600 group-hover:scale-110 group-hover:bg-emerald-600 group-hover:text-white shadow-emerald-100/50'
                     }`}>
-                        {uploadStatus === 'success' ? <CheckCircle size={32}/> : <Upload size={32}/>}
+                        {uploadStatus === 'success' || uploadStatus === 'restoring'
+                            ? <CheckCircle size={32}/>
+                            : uploadStatus === 'error'
+                            ? <AlertCircle size={32}/>
+                            : <Upload size={32}/>}
                     </div>
                     <h3 className="font-black text-2xl text-slate-900 mb-3 tracking-tight">
-                        {uploadStatus === 'success' ? 'Restored!' : 'Restore Local State'}
+                        {uploadStatus === 'restoring'
+                            ? 'Restoring…'
+                            : uploadStatus === 'success'
+                            ? 'Restored! Reloading…'
+                            : uploadStatus === 'error'
+                            ? 'Restore Failed'
+                            : 'Restore Local State'}
                     </h3>
                     <p className="text-slate-500 font-bold leading-relaxed text-sm">
                         {dragOver
-                            ? 'Drop your backup file here...'
+                            ? 'Drop your backup file here…'
+                            : uploadStatus === 'restoring'
+                            ? 'Validating and writing backup data…'
                             : uploadStatus === 'success'
-                            ? 'Your workspace has been restored from the backup file.'
-                            : 'Click or drag a .json backup file to restore your workspace.'
-                        }
+                            ? 'Backup written. The app will reload momentarily.'
+                            : uploadStatus === 'error'
+                            ? 'The backup file could not be restored. See the error above.'
+                            : 'Click or drag a .json backup file to restore your workspace. Credentials and notification preferences are not affected.'}
                     </p>
                 </div>
             </div>
