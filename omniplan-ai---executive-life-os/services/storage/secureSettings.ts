@@ -10,8 +10,12 @@
  *     this cache, keeping the AI service layer unchanged.
  *   - On web (no electronAPI), falls back to plain localStorage for the API key
  *     so the app still works in a browser dev environment.
- *   - Email passwords are managed by EmailSettings via credentialSet/Delete
+ *   - Email passwords are managed by EmailSettings via platform.credentials
  *     directly — not through this file.
+ *
+ * PLATFORM BOUNDARY (Phase 8):
+ *   All credential I/O now goes through platform.credentials (services/platform).
+ *   No direct window.electronAPI calls remain in this file.
  *
  * MIGRATION:
  *   migrateCredentials() moves any plaintext API key / email passwords that
@@ -21,6 +25,7 @@
  */
 
 import { storage, LOCAL_STORAGE_KEYS } from './index';
+import { platform, isElectron } from '../platform';
 import type { AIProviderID } from '../ai/types';
 
 export interface AISettings {
@@ -52,10 +57,6 @@ let _apiKeyCache: string | null = null;
 
 const KEYCHAIN_AI_KEY = 'omni_api_key';
 
-function isElectron(): boolean {
-  return typeof window !== 'undefined' && !!(window as Window).electronAPI;
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -63,12 +64,12 @@ function isElectron(): boolean {
 /**
  * Initialise the renderer-side API key cache from Electron safeStorage.
  * Must be awaited once on app startup before getAISettings() is called.
- * No-op on web (no electronAPI).
+ * No-op on web (platform.credentials.isAvailable() returns false).
  */
 export async function initAICredentials(): Promise<void> {
-  if (!isElectron()) return;
+  if (!platform.credentials.isAvailable()) return;
   try {
-    const key = await window.electronAPI!.credentialGet(KEYCHAIN_AI_KEY);
+    const key = await platform.credentials.get(KEYCHAIN_AI_KEY);
     _apiKeyCache = key ?? null;
   } catch {
     _apiKeyCache = null;
@@ -139,7 +140,7 @@ export async function saveAISettings(settings: AISettings): Promise<boolean> {
   storage.set(LOCAL_STORAGE_KEYS.AI_SETTINGS, nonSensitive);
 
   if (isElectron()) {
-    const ok = await window.electronAPI!.credentialSet(KEYCHAIN_AI_KEY, settings.apiKey);
+    const ok = await platform.credentials.set(KEYCHAIN_AI_KEY, settings.apiKey);
     if (ok) {
       _apiKeyCache = settings.apiKey;
     }
@@ -162,18 +163,16 @@ export async function saveAISettings(settings: AISettings): Promise<boolean> {
  * skipped for that key (avoids overwriting a newer value with a stale one).
  */
 export async function migrateCredentials(): Promise<void> {
-  if (!isElectron()) return;
-
-  const electronAPI = window.electronAPI!;
+  if (!platform.credentials.isAvailable()) return;
 
   // ── 1. AI API key ──────────────────────────────────────────────────────────
   const savedSettings = storage.get<Partial<AISettings & { apiKey: string }>>(
     LOCAL_STORAGE_KEYS.AI_SETTINGS,
   );
   if (savedSettings?.apiKey) {
-    const existing = await electronAPI.credentialGet(KEYCHAIN_AI_KEY);
+    const existing = await platform.credentials.get(KEYCHAIN_AI_KEY);
     if (!existing) {
-      await electronAPI.credentialSet(KEYCHAIN_AI_KEY, savedSettings.apiKey);
+      await platform.credentials.set(KEYCHAIN_AI_KEY, savedSettings.apiKey);
       _apiKeyCache = savedSettings.apiKey;
     } else {
       _apiKeyCache = existing;
@@ -193,9 +192,9 @@ export async function migrateCredentials(): Promise<void> {
     for (const account of accounts) {
       if (account.password) {
         const credKey = `omni_email_pw_${account.id}`;
-        const existing = await electronAPI.credentialGet(credKey);
+        const existing = await platform.credentials.get(credKey);
         if (!existing) {
-          await electronAPI.credentialSet(credKey, account.password);
+          await platform.credentials.set(credKey, account.password);
         }
         delete account.password;
         dirty = true;

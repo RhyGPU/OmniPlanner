@@ -7,6 +7,7 @@ import { CalendarEvent } from '../types';
 import { AISettings } from './AISettings';
 import { EmailSettings } from './EmailSettings';
 import { ConfirmDialog } from './Dialog';
+import { platform } from '../services/platform';
 
 interface DataViewProps {
   handleSaveData: () => void;
@@ -92,7 +93,7 @@ export const DataView: React.FC<DataViewProps> = ({
         if (icsInputRef.current) icsInputRef.current.value = '';
     }, [onImportIcsEvents]);
 
-    const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
+    const isElectron = platform.shell.isAvailable();
 
     return (
       <div className="flex flex-col h-full bg-white p-12 overflow-y-auto custom-scrollbar">
@@ -237,9 +238,7 @@ export const DataView: React.FC<DataViewProps> = ({
                     </button>
                     {isElectron && (
                         <button
-                            onClick={() => {
-                                (window as any).electronAPI?.quitApp();
-                            }}
+                            onClick={() => platform.shell.quit()}
                             className="bg-slate-700 hover:bg-slate-600 text-white px-8 py-5 rounded-2xl font-black text-xs tracking-widest uppercase transition-all shadow-xl shadow-slate-900/50 active:scale-95 whitespace-nowrap flex items-center gap-2"
                         >
                             Exit Program

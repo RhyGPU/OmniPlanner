@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Plus, Trash2, TestTube, Check, X, Mail, AlertTriangle } from 'lucide-react';
 import { EmailAccount } from '../types';
 import { AlertDialog } from './Dialog';
+import { platform } from '../services/platform';
 
 const PROVIDERS = [
   { id: 'gmail', label: 'Gmail', host: 'imap.gmail.com' },
@@ -45,7 +46,6 @@ export const EmailSettings: React.FC = () => {
   });
 
   const addAccount = async () => {
-    const electronAPI = (window as Window).electronAPI;
     const account: EmailAccount = {
       id: crypto.randomUUID(),
       name: form.name || form.email,
@@ -56,9 +56,9 @@ export const EmailSettings: React.FC = () => {
       enabled: true,
     };
 
-    // Store password in safeStorage; fall back to localStorage if unavailable.
-    if (electronAPI?.credentialSet) {
-      const ok = await electronAPI.credentialSet(`omni_email_pw_${account.id}`, form.password);
+    // Store password via platform credential service; fall back to inline if unavailable.
+    if (platform.credentials.isAvailable()) {
+      const ok = await platform.credentials.set(`omni_email_pw_${account.id}`, form.password);
       if (!ok) {
         setKeychainUnavailable(true);
         // Fallback: store in the account object (plain localStorage)
@@ -77,9 +77,8 @@ export const EmailSettings: React.FC = () => {
   };
 
   const removeAccount = async (id: string) => {
-    const electronAPI = (window as Window).electronAPI;
-    if (electronAPI?.credentialDelete) {
-      await electronAPI.credentialDelete(`omni_email_pw_${id}`);
+    if (platform.credentials.isAvailable()) {
+      await platform.credentials.delete(`omni_email_pw_${id}`);
     }
     const updated = accounts.filter(a => a.id !== id);
     setAccounts(updated);
@@ -87,8 +86,7 @@ export const EmailSettings: React.FC = () => {
   };
 
   const testConnection = async (account: EmailAccount) => {
-    const electronAPI = (window as Window).electronAPI;
-    if (!electronAPI?.fetchEmails) {
+    if (!platform.email.isAvailable()) {
       setAlertMsg('Email testing requires the desktop app. Open OmniPlan as an Electron app to test connections.');
       return;
     }
@@ -96,7 +94,7 @@ export const EmailSettings: React.FC = () => {
     try {
       // fetchEmails triggers email:fetch in main — password is looked up from
       // safeStorage there. We do not pass the password from renderer here.
-      const result = await electronAPI.fetchEmails(account);
+      const result = await platform.email.fetchEmails(account);
       setTestStatus(prev => ({ ...prev, [account.id]: result.success ? 'success' : 'error' }));
       if (!result.success) setAlertMsg('Connection failed: ' + result.error);
     } catch {
@@ -105,14 +103,13 @@ export const EmailSettings: React.FC = () => {
   };
 
   const testNewConnection = async () => {
-    const electronAPI = (window as Window).electronAPI;
-    if (!electronAPI?.testEmailConnection) {
+    if (!platform.email.isAvailable()) {
       setAlertMsg('Connection testing requires the desktop app.');
       return;
     }
     setTestStatus(prev => ({ ...prev, _new: 'testing' }));
     try {
-      const result = await electronAPI.testEmailConnection({
+      const result = await platform.email.testConnection({
         email: form.email,
         password: form.password,
         provider: form.provider,

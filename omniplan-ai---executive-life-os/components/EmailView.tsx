@@ -5,6 +5,7 @@ import { Email, CalendarEvent, WeekData } from '../types';
 import { getEmailAccounts } from './EmailSettings';
 import { extractEventFromEmail } from '../services/ai';
 import { AlertDialog } from './Dialog';
+import { platform } from '../services/platform';
 
 interface EmailViewProps {
   emails: Email[];
@@ -12,8 +13,6 @@ interface EmailViewProps {
   allWeeks: Record<string, WeekData>;
   onAddEvent: (date: Date, event: CalendarEvent) => void;
 }
-
-const electronAPI = (window as any).electronAPI;
 
 export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeeks, onAddEvent }) => {
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -38,7 +37,7 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
       setAlertMsg('No email accounts configured. Go to Settings & Data to add one.');
       return;
     }
-    if (!electronAPI?.fetchEmails) {
+    if (!platform.email.isAvailable()) {
       setAlertMsg('Email fetching requires the desktop (Electron) app.');
       return;
     }
@@ -49,7 +48,7 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
       const newEmails: Email[] = [];
 
       for (const account of accounts) {
-        const result = await electronAPI.fetchEmails(account);
+        const result = await platform.email.fetchEmails(account);
         if (result.success) {
           for (const msg of result.emails) {
             newEmails.push({
@@ -82,9 +81,9 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
     if (email.body || !email._uid || !email._accountId) return;
     const accounts = getEmailAccounts();
     const account = accounts.find(a => a.id === email._accountId);
-    if (!account || !electronAPI?.fetchEmailBody) return;
+    if (!account || !platform.email.isAvailable()) return;
 
-    const result = await electronAPI.fetchEmailBody(account, email._uid);
+    const result = await platform.email.fetchEmailBody(account, email._uid);
     if (result.success) {
       setEmails(prev => prev.map(e => e.id === email.id ? { ...e, body: result.body } : e));
     }
