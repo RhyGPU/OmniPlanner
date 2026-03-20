@@ -14,7 +14,13 @@ import {
   getGoalExecutionSummary,
   GoalProgress,
 } from '../utils/goalManager';
-import { getGoalExecutionCoverage, GoalCoverageSummary } from '../utils/planningIntelligence';
+import {
+  getGoalExecutionCoverage,
+  GoalCoverageSummary,
+  getGoalHistoricalExecutionSummary,
+  GoalHistoricalExecutionSummary,
+} from '../utils/planningIntelligence';
+import { getWeekStorageKey } from '../utils/weekManager';
 
 interface GoalsViewProps {
   goalItems: GoalItem[];
@@ -47,13 +53,15 @@ interface GoalRowProps {
   progress?: GoalProgress;
   /** Current-week execution coverage — scheduled minutes and todo counts. */
   coverage?: GoalCoverageSummary;
+  /** Historical execution summary over the last N past weeks. */
+  hist?: GoalHistoricalExecutionSummary;
   onUpdate: (id: string, changes: Partial<GoalItem>) => void;
   onComplete: (id: string) => void;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
 }
 
-const GoalRow: React.FC<GoalRowProps> = ({ item, progress, coverage, onUpdate, onComplete, onArchive, onRestore }) => {
+const GoalRow: React.FC<GoalRowProps> = ({ item, progress, coverage, hist, onUpdate, onComplete, onArchive, onRestore }) => {
   const isDone = item.status === 'completed';
   const isArchived = item.status === 'archived';
 
@@ -109,6 +117,21 @@ const GoalRow: React.FC<GoalRowProps> = ({ item, progress, coverage, onUpdate, o
           {coverage.scheduledMinutes >= 60
             ? `${+(coverage.scheduledMinutes / 60).toFixed(1)}h`
             : `${Math.round(coverage.scheduledMinutes)}m`}
+        </span>
+      )}
+      {/* Historical trend chip — shows support weeks count over last N weeks */}
+      {hist && hist.weeksConsidered >= 2 && (
+        <span
+          title={`Scheduled in ${hist.supportWeeksCount} of last ${hist.weeksConsidered} weeks${hist.supportStreak > 1 ? ` · ${hist.supportStreak}-week streak` : ''}`}
+          className={`self-center text-[9px] font-black px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+            hist.supportWeeksCount === 0
+              ? 'bg-slate-100 text-slate-400'
+              : hist.supportWeeksCount === hist.weeksConsidered
+              ? 'bg-emerald-100 text-emerald-600'
+              : 'bg-amber-100 text-amber-600'
+          }`}
+        >
+          {hist.supportWeeksCount}/{hist.weeksConsidered}w
         </span>
       )}
 
@@ -177,6 +200,14 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
   const cov = (id: string): GoalCoverageSummary | undefined =>
     currentWeek ? getGoalExecutionCoverage(id, currentWeek) : undefined;
 
+  /** Returns historical execution summary over the last 4 past weeks. */
+  const currentWeekKey = getWeekStorageKey(new Date());
+  const hist = (id: string): GoalHistoricalExecutionSummary | undefined => {
+    if (Object.keys(allWeeks).length === 0) return undefined;
+    const summary = getGoalHistoricalExecutionSummary(id, allWeeks, currentWeekKey, 4);
+    return summary.weeksConsidered > 0 ? summary : undefined;
+  };
+
   const rowProps = { onUpdate: handleUpdate, onComplete: handleComplete, onArchive: handleArchive, onRestore: handleRestore };
 
   // ---------------------------------------------------------------------------
@@ -201,7 +232,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
                 <div className="space-y-4">
                   {activeItems.map(item => (
                     <div key={item.id} className="space-y-1.5">
-                      <GoalRow item={item} progress={prog(item.id)} coverage={cov(item.id)} {...rowProps}/>
+                      <GoalRow item={item} progress={prog(item.id)} coverage={cov(item.id)} hist={hist(item.id)} {...rowProps}/>
                       {/* Operational steps (notes field) */}
                       <textarea
                         rows={1}
@@ -221,7 +252,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {activeItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} {...rowProps}/>)}
+                  {activeItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} hist={hist(item.id)} {...rowProps}/>)}
                 </div>
               )}
 
@@ -238,7 +269,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
                     {archivedItems.length} archived
                   </summary>
                   <div className="mt-2 space-y-1 opacity-60">
-                    {archivedItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} {...rowProps}/>)}
+                    {archivedItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} hist={hist(item.id)} {...rowProps}/>)}
                   </div>
                 </details>
               )}
@@ -262,7 +293,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
         <div className="bg-slate-50 p-8 rounded-3xl border border-slate-100">
           <div className="text-3xl font-black text-blue-600 tracking-tighter mb-5">{currentYear}</div>
           <div className="space-y-1">
-            {active.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} {...rowProps}/>)}
+            {active.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} hist={hist(item.id)} {...rowProps}/>)}
           </div>
           <button
             onClick={() => handleAdd('one_year', { targetDate: `${currentYear}-12-31` })}
@@ -276,7 +307,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
                 {archived.length} archived
               </summary>
               <div className="mt-2 space-y-1 opacity-60">
-                {archived.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} {...rowProps}/>)}
+                {archived.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} hist={hist(item.id)} {...rowProps}/>)}
               </div>
             </details>
           )}
@@ -307,7 +338,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
               isCurrentMonth ? 'text-blue-600 border-blue-200' : 'text-slate-900 border-slate-200'
             }`}>{month}</div>
             <div className="flex-1 space-y-1">
-              {monthItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} {...rowProps}/>)}
+              {monthItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} hist={hist(item.id)} {...rowProps}/>)}
             </div>
             <button
               onClick={() => handleAdd('monthly', { targetDate: `${currentYear}-${mm}-01` })}

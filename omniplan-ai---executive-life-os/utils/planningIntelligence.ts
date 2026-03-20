@@ -339,3 +339,210 @@ export function getWeeklyReviewSummary(
       getUnscheduledDailyLinkedTodos(currentWeek).length,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 7: historical trend selectors
+// ---------------------------------------------------------------------------
+
+/** Per-week execution snapshot for a single goal. */
+export interface GoalWeeklyTrendPoint {
+  weekKey: string;
+  hasCalendarSupport: boolean;
+  scheduledMinutes: number;
+  linkedTaskCount: number;
+  completedLinkedTaskCount: number;
+  unscheduledLinkedTaskCount: number;
+}
+
+/** Aggregate over N recent weeks for a single goal. */
+export interface GoalHistoricalExecutionSummary {
+  goalId: string;
+  /** How many of the N weeks had at least one calendar block for this goal. */
+  supportWeeksCount: number;
+  /** Consecutive streak of most-recent weeks with calendar support (most-recent first). */
+  supportStreak: number;
+  /** Total scheduled minutes across the N weeks. */
+  totalScheduledMinutes: number;
+  /** Total completed linked tasks across the N weeks. */
+  totalCompletedLinkedTasks: number;
+  /** Number of weeks considered (may be < limit if fewer exist). */
+  weeksConsidered: number;
+}
+
+/** Cross-goal aggregate for the historical reflection panel. */
+export interface HistoricalReviewSummary {
+  /** Total weeks in the window. */
+  weeksConsidered: number;
+  /** Goals with calendar support in every week of the window. */
+  consistentGoalCount: number;
+  /** Goals that had support in some but not all weeks. */
+  partialGoalCount: number;
+  /** Goals with linked work this window but zero calendar support weeks. */
+  gapGoalCount: number;
+  /** Goal IDs with the longest support streak (may be multiple). */
+  streakLeaderIds: string[];
+  /** The streak length of the leaders. */
+  topStreak: number;
+}
+
+/**
+ * Returns up to `limit` recent week keys that exist in allWeeks,
+ * sorted chronologically (oldest first, most-recent last).
+ * Excludes the current week key if present — historical windows look backward.
+ */
+export function getRecentWeekKeys(
+  allWeeks: Record<string, WeekData>,
+  currentWeekKey: string,
+  limit: number = 4,
+): string[] {
+  return Object.keys(allWeeks)
+    .filter(k => k < currentWeekKey)
+    .sort()
+    .slice(-limit);
+}
+
+/**
+ * Per-week trend data for a single goal over the N most-recent past weeks.
+ * Ordered oldest → most-recent.
+ */
+export function getGoalWeeklyTrend(
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+  currentWeekKey: string,
+  limit: number = 4,
+): GoalWeeklyTrendPoint[] {
+  const weekKeys = getRecentWeekKeys(allWeeks, currentWeekKey, limit);
+  return weekKeys.map(weekKey => {
+    const week = allWeeks[weekKey];
+    const weeklyTodos = [...week.goals.business, ...week.goals.personal].filter(
+      t => t.parentGoalId === goalId,
+    );
+    const dailyTodos = Object.values(week.dailyPlans).flatMap(dp =>
+      dp.todos.filter(t => t.parentGoalId === goalId),
+    );
+    const allLinked = [...weeklyTodos, ...dailyTodos];
+    const scheduledMinutes = getGoalCalendarSupport(goalId, week);
+    const unscheduledLinkedTaskCount =
+      getUnscheduledWeeklyLinkedTodos(week).filter(t => t.parentGoalId === goalId).length +
+      getUnscheduledDailyLinkedTodos(week).filter(({ todo }) => todo.parentGoalId === goalId).length;
+    return {
+      weekKey,
+      hasCalendarSupport: scheduledMinutes > 0,
+      scheduledMinutes,
+      linkedTaskCount: allLinked.length,
+      completedLinkedTaskCount: allLinked.filter(t => t.done).length,
+      unscheduledLinkedTaskCount,
+    };
+  });
+}
+
+/** Count of past weeks (within limit) where the goal had calendar support. */
+export function getGoalSupportWeeksCount(
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+  currentWeekKey: string,
+  limit: number = 4,
+): number {
+  return getGoalWeeklyTrend(goalId, allWeeks, currentWeekKey, limit).filter(
+    p => p.hasCalendarSupport,
+  ).length;
+}
+
+/**
+ * Consecutive streak of most-recent weeks with calendar support.
+ * Counts backward from the most-recent past week.
+ */
+export function getGoalSupportStreak(
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+  currentWeekKey: string,
+  limit: number = 4,
+): number {
+  const trend = getGoalWeeklyTrend(goalId, allWeeks, currentWeekKey, limit).reverse();
+  let streak = 0;
+  for (const point of trend) {
+    if (point.hasCalendarSupport) streak++;
+    else break;
+  }
+  return streak;
+}
+
+/** Aggregate execution summary for a single goal over N past weeks. */
+export function getGoalHistoricalExecutionSummary(
+  goalId: string,
+  allWeeks: Record<string, WeekData>,
+  currentWeekKey: string,
+  limit: number = 4,
+): GoalHistoricalExecutionSummary {
+  const trend = getGoalWeeklyTrend(goalId, allWeeks, currentWeekKey, limit);
+  const supportWeeksCount = trend.filter(p => p.hasCalendarSupport).length;
+  const streak = getGoalSupportStreak(goalId, allWeeks, currentWeekKey, limit);
+  return {
+    goalId,
+    supportWeeksCount,
+    supportStreak: streak,
+    totalScheduledMinutes: trend.reduce((s, p) => s + p.scheduledMinutes, 0),
+    totalCompletedLinkedTasks: trend.reduce((s, p) => s + p.completedLinkedTaskCount, 0),
+    weeksConsidered: trend.length,
+  };
+}
+
+/**
+ * Cross-goal historical summary for the reflection panel.
+ * Only considers active goals that have linked work in any of the N past weeks.
+ */
+export function getHistoricalReviewSummary(
+  goalItems: GoalItem[],
+  allWeeks: Record<string, WeekData>,
+  currentWeekKey: string,
+  limit: number = 4,
+): HistoricalReviewSummary {
+  const weekKeys = getRecentWeekKeys(allWeeks, currentWeekKey, limit);
+  const weeksConsidered = weekKeys.length;
+
+  const activeGoals = goalItems.filter(g => g.status === 'active');
+  const summaries = activeGoals
+    .map(g => getGoalHistoricalExecutionSummary(g.id, allWeeks, currentWeekKey, limit))
+    .filter(s => s.weeksConsidered > 0 && (s.totalScheduledMinutes > 0 || s.totalCompletedLinkedTasks > 0 || s.supportWeeksCount > 0));
+
+  // Also include goals that had linked tasks in any past week even if no calendar support
+  const goalsWithAnyLinkedWork = activeGoals.filter(g =>
+    weekKeys.some(wk => {
+      const week = allWeeks[wk];
+      const wTodos = [...week.goals.business, ...week.goals.personal];
+      const dTodos = Object.values(week.dailyPlans).flatMap(dp => dp.todos);
+      return [...wTodos, ...dTodos].some(t => t.parentGoalId === g.id);
+    }),
+  );
+
+  let consistentGoalCount = 0;
+  let partialGoalCount = 0;
+  let gapGoalCount = 0;
+  let topStreak = 0;
+  const streakLeaderIds: string[] = [];
+
+  for (const g of goalsWithAnyLinkedWork) {
+    const s = getGoalHistoricalExecutionSummary(g.id, allWeeks, currentWeekKey, limit);
+    if (s.weeksConsidered === 0) continue;
+    if (s.supportWeeksCount === s.weeksConsidered && s.weeksConsidered > 0) consistentGoalCount++;
+    else if (s.supportWeeksCount > 0) partialGoalCount++;
+    else gapGoalCount++;
+
+    if (s.supportStreak > topStreak) {
+      topStreak = s.supportStreak;
+      streakLeaderIds.length = 0;
+      streakLeaderIds.push(g.id);
+    } else if (s.supportStreak === topStreak && topStreak > 0) {
+      streakLeaderIds.push(g.id);
+    }
+  }
+
+  return {
+    weeksConsidered,
+    consistentGoalCount,
+    partialGoalCount,
+    gapGoalCount,
+    streakLeaderIds,
+    topStreak,
+  };
+}

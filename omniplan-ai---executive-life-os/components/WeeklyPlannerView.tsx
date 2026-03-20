@@ -7,7 +7,7 @@ import {
   getWeekDays, formatDateKey, DAYS, MONTHS,
   START_HOUR, PIXELS_PER_HOUR, formatHour, generateTimeSlots
 } from '../constants';
-import { calculateCrossWeekStreak } from '../utils/weekManager';
+import { calculateCrossWeekStreak, getWeekStorageKey } from '../utils/weekManager';
 import { getMilestoneForStreak, getFlameColorClass } from '../utils/habitMilestones';
 import { CheckableList } from './CheckableList';
 import { ConfirmDialog } from './Dialog';
@@ -18,6 +18,8 @@ import {
   dayHasLinkedFocusBlocks,
   getWeeklyReviewSummary,
   WeeklyReviewSummary,
+  getHistoricalReviewSummary,
+  HistoricalReviewSummary,
 } from '../utils/planningIntelligence';
 
 const GOAL_TIMEFRAME_LABELS: Record<string, string> = {
@@ -78,6 +80,11 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   const unscheduledLinked = useMemo(() => getUnscheduledWeeklyLinkedTodos(currentWeek), [currentWeek]);
   const unscheduledByDay = useMemo(() => getUnscheduledLinkedTaskCountsByDay(currentWeek), [currentWeek]);
   const weeklyReview = useMemo(() => getWeeklyReviewSummary(goalItems, currentWeek), [goalItems, currentWeek]);
+  const currentWeekKey = useMemo(() => getWeekStorageKey(currentDate), [currentDate]);
+  const historicalReview = useMemo(
+    () => getHistoricalReviewSummary(goalItems, allWeeks, currentWeekKey, 4),
+    [goalItems, allWeeks, currentWeekKey],
+  );
 
   // Auto-archive stale habits (only runs once when week changes)
   useEffect(() => {
@@ -537,6 +544,47 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                     )}
                   </div>
                 </details>
+
+                {/* Historical Reflection — collapsed by default, 4-week trend summary */}
+                {historicalReview.weeksConsidered >= 2 && (
+                  <details className="border-b border-slate-200 group/history">
+                    <summary className="flex items-center gap-1.5 px-5 py-3 text-[9px] font-black text-slate-400 uppercase tracking-widest cursor-pointer select-none hover:text-slate-600 transition-colors list-none">
+                      <Activity size={11}/>
+                      Last {historicalReview.weeksConsidered} Weeks
+                    </summary>
+                    <div className="px-5 pb-4 space-y-2 bg-slate-50/60">
+                      {historicalReview.consistentGoalCount > 0 && (
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="text-slate-500">Goals with consistent time</span>
+                          <span className="font-black text-emerald-600">{historicalReview.consistentGoalCount}</span>
+                        </div>
+                      )}
+                      {historicalReview.partialGoalCount > 0 && (
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="text-slate-500">Goals with partial coverage</span>
+                          <span className="font-black text-amber-600">{historicalReview.partialGoalCount}</span>
+                        </div>
+                      )}
+                      {historicalReview.gapGoalCount > 0 && (
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="text-slate-500">Goals with no calendar time</span>
+                          <span className="font-black text-slate-400">{historicalReview.gapGoalCount}</span>
+                        </div>
+                      )}
+                      {historicalReview.topStreak >= 2 && (
+                        <div className="flex justify-between items-center text-[10px]">
+                          <span className="text-slate-500">Longest support streak</span>
+                          <span className="font-black text-purple-600">{historicalReview.topStreak} wks</span>
+                        </div>
+                      )}
+                      {historicalReview.consistentGoalCount === 0 &&
+                        historicalReview.partialGoalCount === 0 &&
+                        historicalReview.gapGoalCount === 0 && (
+                          <p className="text-[10px] text-slate-400 italic">No linked goal work in recent weeks.</p>
+                      )}
+                    </div>
+                  </details>
+                )}
 
                 {/* Focus Goals — active annual + this month's monthly goals */}
                 <div className="flex flex-col border-b border-slate-200 p-5 bg-white/60">
