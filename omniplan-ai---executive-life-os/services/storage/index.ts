@@ -52,6 +52,8 @@ export const LOCAL_STORAGE_KEYS = {
   GOAL_ITEMS:       'omni_goal_items',
   /** Integer version of the highest applied migration. Written by runMigrations(). */
   SCHEMA_VERSION:   'omni_schema_version',
+  /** Phase 11B: local notification reminder configuration. Non-sensitive. */
+  NOTIFICATION_SETTINGS: 'omni_notification_settings',
 } as const;
 
 // ---------------------------------------------------------------------------

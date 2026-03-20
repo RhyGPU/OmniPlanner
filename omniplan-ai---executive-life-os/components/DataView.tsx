@@ -3,9 +3,10 @@ import React, { useRef, useState, useCallback } from 'react';
 import { Download, Upload, Database, ShieldCheck, FileJson, Calendar as CalendarIcon, FileUp, CheckCircle, AlertCircle } from 'lucide-react';
 import { clearAllData } from '../utils/dataManager';
 import { parseIcsFile } from '../utils/icsParser';
-import { CalendarEvent } from '../types';
+import { CalendarEvent, NotificationSettings } from '../types';
 import { AISettings } from './AISettings';
 import { EmailSettings } from './EmailSettings';
+import { NotificationSettingsPanel } from './NotificationSettingsPanel';
 import { ConfirmDialog } from './Dialog';
 import { platform } from '../services/platform';
 
@@ -13,12 +14,16 @@ interface DataViewProps {
   handleSaveData: () => void;
   handleLoadData: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onImportIcsEvents: (events: { date: Date; event: CalendarEvent }[]) => void;
+  notificationSettings: NotificationSettings;
+  onNotificationSettingsChange: (settings: NotificationSettings) => void;
 }
 
 export const DataView: React.FC<DataViewProps> = ({
     handleSaveData,
     handleLoadData,
     onImportIcsEvents,
+    notificationSettings,
+    onNotificationSettingsChange,
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const icsInputRef = useRef<HTMLInputElement>(null);
@@ -127,6 +132,14 @@ export const DataView: React.FC<DataViewProps> = ({
             {/* Email Account Settings */}
             <div className="mb-12">
                 <EmailSettings />
+            </div>
+
+            {/* Notification Reminder Settings */}
+            <div className="mb-12">
+                <NotificationSettingsPanel
+                    settings={notificationSettings}
+                    onChange={onNotificationSettingsChange}
+                />
             </div>
 
             <div className="grid md:grid-cols-2 gap-10 mb-10">

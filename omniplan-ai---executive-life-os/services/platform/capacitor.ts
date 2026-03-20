@@ -1,34 +1,37 @@
 /**
  * Capacitor platform adapter — iOS and Android via @capacitor/core.
  *
- * CREDENTIAL SECURITY WARNING:
- *   @capacitor/preferences uses NSUserDefaults (iOS) and SharedPreferences
- *   (Android).  These storage backends are app-sandboxed but are NOT
- *   hardware-backed encrypted storage.  They are NOT equivalent to:
- *     - iOS Keychain (hardware-backed AES-256)
- *     - Android Keystore (hardware-backed key storage)
+ * CREDENTIAL SECURITY — PHASE 11A UPDATE:
+ *   capacitorCredentials now uses `capacitor-secure-storage-plugin` which
+ *   wraps platform-native secure storage:
+ *     - iOS:     Keychain Services (hardware-backed AES encryption via Secure Enclave)
+ *     - Android: Keystore + EncryptedSharedPreferences (hardware-backed on API 23+)
+ *     - Web dev: AES-GCM encryption in localStorage (development fallback only —
+ *                NOT equivalent to hardware-backed storage; never use in production)
  *
- *   This means API keys stored here are protected only by the OS app
- *   sandbox, not hardware security modules.  This is an acceptable
- *   trade-off for a local-first productivity app, but users should be
- *   informed.  The credential service logs a one-time console warning
- *   when first accessed on a Capacitor build.
+ *   This replaces the Phase 10 transitional implementation which used
+ *   @capacitor/preferences (NSUserDefaults / SharedPreferences — app-sandbox only,
+ *   NOT hardware-backed). The transitional store is drained by
+ *   migrateCapacitorCredentialsFromPreferences() on first launch after upgrade.
  *
- *   Future improvement path: replace with a community Capacitor plugin
- *   that wraps the native Keychain/Keystore APIs directly.
+ * MIGRATION:
+ *   Call migrateCapacitorCredentialsFromPreferences() once at startup (before
+ *   migrateCredentials() in secureSettings.ts). It is idempotent: if a key is
+ *   already in SecureStoragePlugin it is not overwritten; it is always deleted
+ *   from Preferences after confirmed migration.
  *
  * SERVICE WORKER:
- *   WKWebView (iOS Capacitor) does NOT support service workers.  The
- *   native app bundle itself provides the offline shell — do not attempt
- *   SW registration when isCapacitor() returns true.
+ *   WKWebView (iOS Capacitor) does NOT support service workers. The native app
+ *   bundle itself provides the offline shell — do not attempt SW registration
+ *   when isCapacitor() returns true.
  *
  * EMAIL:
- *   IMAP fetching is not available on Capacitor — the Electron IPC bridge
- *   is absent.  EmailService delegates to the web null adapter.
+ *   IMAP fetching is not available on Capacitor — the Electron IPC bridge is
+ *   absent. EmailService delegates to the web null adapter.
  *
  * NOTIFICATIONS:
  *   @capacitor/local-notifications wraps UNCalendarTrigger (iOS) and
- *   AlarmManager (Android).  Runtime permission must be requested before
+ *   AlarmManager (Android). Runtime permission must be requested before
  *   the first schedule() call.
  */
 
@@ -37,6 +40,7 @@ import {
   LocalNotifications,
   type ScheduleOptions,
 } from '@capacitor/local-notifications';
+import { SecureStoragePlugin } from 'capacitor-secure-storage-plugin';
 import type {
   CredentialService,
   NotificationService,
@@ -44,62 +48,137 @@ import type {
   PlannedNotification,
   ShellService,
 } from './types';
-import { webEmail, webNetwork } from './web';
 
-// ---------------------------------------------------------------------------
-// One-time security warning
-// ---------------------------------------------------------------------------
-
-let _credentialWarningShown = false;
-
-function warnCredentialSecurity(): void {
-  if (_credentialWarningShown) return;
-  _credentialWarningShown = true;
-  console.warn(
-    '[OmniPlanner] Capacitor credential storage uses NSUserDefaults / SharedPreferences ' +
-      '(app-sandboxed, NOT hardware-backed Keychain/Keystore). ' +
-      'API keys are protected by the OS app sandbox only.',
+// Inline detection to avoid circular import with ./index
+function _isCapacitorNative(): boolean {
+  return (
+    typeof (globalThis as any).Capacitor !== 'undefined' &&
+    (globalThis as any).Capacitor.isNativePlatform() === true
   );
 }
 
 // ---------------------------------------------------------------------------
-// Credential service — @capacitor/preferences
+// Credential service — capacitor-secure-storage-plugin
+// (iOS Keychain, Android Keystore, web AES-GCM fallback)
 // ---------------------------------------------------------------------------
 
+/**
+ * Native-secure credential storage for Capacitor builds.
+ *
+ * Backed by:
+ *   iOS:     iOS Keychain Services (hardware-backed via Secure Enclave on capable devices)
+ *   Android: Keystore + EncryptedSharedPreferences (hardware-backed on API 23+)
+ *
+ * NOTE: The web fallback within capacitor-secure-storage-plugin uses AES-GCM
+ * encryption in localStorage. This is NOT hardware-backed and should only ever
+ * be used during development/testing, not in production browser deployments.
+ */
 export const capacitorCredentials: CredentialService = {
   isAvailable(): boolean {
     return true;
   },
 
   async set(key: string, value: string): Promise<boolean> {
-    warnCredentialSecurity();
     try {
-      await Preferences.set({ key, value });
+      await SecureStoragePlugin.set({ key, value });
       return true;
     } catch (e) {
-      console.error('[OmniPlanner] capacitorCredentials.set failed:', e);
+      console.error('[OmniPlanner] SecureStorage.set failed:', e);
       return false;
     }
   },
 
   async get(key: string): Promise<string | null> {
-    warnCredentialSecurity();
     try {
-      const result = await Preferences.get({ key });
+      const result = await SecureStoragePlugin.get({ key });
       return result.value ?? null;
     } catch {
+      // SecureStoragePlugin throws when key does not exist — treat as absent
       return null;
     }
   },
 
   async delete(key: string): Promise<void> {
     try {
-      await Preferences.remove({ key });
+      await SecureStoragePlugin.remove({ key });
     } catch {
-      // Ignore — key may not exist
+      // Key may not exist — ignore
     }
   },
 };
+
+// ---------------------------------------------------------------------------
+// One-time migration: Preferences → SecureStoragePlugin
+// ---------------------------------------------------------------------------
+
+/**
+ * Migrate credentials from the Phase 10 transitional store (@capacitor/preferences)
+ * to the Phase 11 native secure store (capacitor-secure-storage-plugin).
+ *
+ * IDEMPOTENCY:
+ *   - If a key is already present in SecureStoragePlugin it is NOT overwritten
+ *     (the existing secure value wins — it is assumed to be newer).
+ *   - Each key is deleted from Preferences regardless, whether it was migrated
+ *     now or was already present in the secure store.
+ *   - Safe to call on every startup; exits early if no credential keys remain
+ *     in Preferences.
+ *
+ * SECURITY:
+ *   After this function completes, no OmniPlanner credentials should remain
+ *   in NSUserDefaults / SharedPreferences on Capacitor builds.
+ */
+export async function migrateCapacitorCredentialsFromPreferences(): Promise<void> {
+  if (!_isCapacitorNative()) return; // Only runs on native Capacitor builds
+
+  let prefKeys: string[];
+  try {
+    const result = await Preferences.keys();
+    prefKeys = result.keys;
+  } catch (e) {
+    console.error('[OmniPlanner] Could not enumerate Preferences keys during migration:', e);
+    return;
+  }
+
+  // Only migrate known credential key patterns
+  const credentialKeys = prefKeys.filter(
+    k => k === 'omni_api_key' || k.startsWith('omni_email_pw_'),
+  );
+
+  if (credentialKeys.length === 0) return; // Nothing to migrate
+
+  console.info(
+    `[OmniPlanner] Migrating ${credentialKeys.length} credential(s) from ` +
+      'transitional Preferences store to native Keychain/Keystore.',
+  );
+
+  for (const key of credentialKeys) {
+    try {
+      // Check if key is already in SecureStoragePlugin
+      let alreadySecure = false;
+      try {
+        await SecureStoragePlugin.get({ key });
+        alreadySecure = true;
+      } catch {
+        alreadySecure = false;
+      }
+
+      if (!alreadySecure) {
+        // Read from Preferences and write to SecureStoragePlugin
+        const { value } = await Preferences.get({ key });
+        if (value !== null) {
+          await SecureStoragePlugin.set({ key, value });
+          console.info(`[OmniPlanner] Migrated credential key '${key}' to native secure store.`);
+        }
+      }
+
+      // Delete from Preferences in all cases (already secure or just migrated)
+      await Preferences.remove({ key });
+    } catch (e) {
+      // Non-fatal: log and continue. Key remains in Preferences until next launch.
+      console.error(`[OmniPlanner] Failed to migrate credential key '${key}':`, e);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Notification service — @capacitor/local-notifications
@@ -123,7 +202,6 @@ export const capacitorNotifications: NotificationService = {
 
   async schedule(notification: PlannedNotification): Promise<boolean> {
     try {
-      // Ensure we have permission first
       const permCheck = await LocalNotifications.checkPermissions();
       if (permCheck.display !== 'granted') return false;
 
@@ -152,7 +230,7 @@ export const capacitorNotifications: NotificationService = {
     try {
       await LocalNotifications.cancel({ notifications: [{ id }] });
     } catch {
-      // Ignore — notification may have already fired
+      // Notification may have already fired — ignore
     }
   },
 
@@ -174,13 +252,12 @@ export const capacitorNotifications: NotificationService = {
 
 export const capacitorShell: ShellService = {
   isAvailable(): boolean {
-    // Shell features (openExternal, quit) are limited on mobile
     return false;
   },
 
   openExternal(url: string): void {
     // Capacitor does not expose a direct openExternal; fall back to window.open
-    // which will open in the system browser on iOS/Android via the WKWebView handler.
+    // which the WKWebView / ChromeCustomTab handler will intercept on device.
     window.open(url, '_blank', 'noopener,noreferrer');
   },
 
@@ -190,5 +267,7 @@ export const capacitorShell: ShellService = {
   },
 };
 
-// Email and network delegates — re-exported for use in platform/index.ts
-export { webEmail as capacitorEmail, webNetwork as capacitorNetwork };
+// ---------------------------------------------------------------------------
+// Email and network delegates — reuse web null adapter
+// ---------------------------------------------------------------------------
+export { webEmail as capacitorEmail, webNetwork as capacitorNetwork } from './web';

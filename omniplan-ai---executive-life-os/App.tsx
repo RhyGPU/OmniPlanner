@@ -8,11 +8,13 @@ import { WeeklyPlannerView } from './components/WeeklyPlannerView';
 import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
 import { AlertDialog } from './components/Dialog';
-import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit } from './types';
+import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit, NotificationSettings } from './types';
 import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
 import { saveGoalItems } from './utils/goalManager';
-import { initAICredentials, migrateCredentials } from './services/storage/secureSettings';
+import { initAICredentials, migrateCredentials, runMobileSecureMigration } from './services/storage/secureSettings';
+import { getNotificationSettings, saveNotificationSettings } from './services/storage/notificationSettings';
+import { syncReminders } from './utils/reminderSync';
 import { formatDateKey } from './constants';
 import { storage, LOCAL_STORAGE_KEYS } from './services/storage';
 
@@ -79,11 +81,50 @@ export default function App() {
     () => storage.get<GoalItem[]>(LOCAL_STORAGE_KEYS.GOAL_ITEMS) ?? [],
   );
 
-  // One-time startup: migrate plaintext credentials to safeStorage, then
-  // warm the renderer-side API key cache. Both operations are idempotent.
-  useEffect(() => {
-    migrateCredentials().then(() => initAICredentials());
+  // Notification reminder settings (non-sensitive, stored in IDB / localStorage)
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(
+    () => getNotificationSettings(),
+  );
+
+  const handleNotificationSettingsChange = useCallback((settings: NotificationSettings) => {
+    setNotificationSettings(settings);
+    saveNotificationSettings(settings);
   }, []);
+
+  // One-time startup:
+  //   1. Run mobile secure migration (Phase 11A): drain @capacitor/preferences
+  //      credentials into native Keychain / Keystore. No-op on Electron / web.
+  //   2. Migrate plaintext localStorage credentials to platform.credentials.
+  //   3. Warm the renderer-side API key cache.
+  //   All operations are idempotent.
+  useEffect(() => {
+    runMobileSecureMigration()
+      .then(() => migrateCredentials())
+      .then(() => initAICredentials());
+  }, []);
+
+  // Sync local notifications whenever notification settings change, or when
+  // today's focus events or habit list changes (for accurate reminder targets).
+  const todayDateKey = formatDateKey(currentDate);
+  const todayFocusEventsKey = useMemo(() => {
+    const dayPlan = currentWeek.dailyPlans?.[todayDateKey];
+    const events = (dayPlan?.events ?? []).filter(e => e.eventKind === 'focus');
+    return events.map(e => `${e.id}:${e.startHour}`).join(',');
+  }, [currentWeek, todayDateKey]);
+
+  const activeHabitsKey = useMemo(() => {
+    return (currentWeek.habits ?? [])
+      .filter(h => !h.archived && !h.deletedAt)
+      .map(h => h.id)
+      .join(',');
+  }, [currentWeek.habits]);
+
+  useEffect(() => {
+    syncReminders(notificationSettings, currentWeek, currentDate).catch(
+      e => console.error('[OmniPlanner] syncReminders failed:', e),
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationSettings, todayFocusEventsKey, activeHabitsKey]);
 
   // Global Persistence Effect
   useEffect(() => {
@@ -281,6 +322,8 @@ export default function App() {
                 handleSaveData={handleSaveData}
                 handleLoadData={handleLoadData}
                 onImportIcsEvents={importIcsEvents}
+                notificationSettings={notificationSettings}
+                onNotificationSettingsChange={handleNotificationSettingsChange}
               />
             )}
           </div>
