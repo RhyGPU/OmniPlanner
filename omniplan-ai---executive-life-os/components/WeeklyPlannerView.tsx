@@ -145,7 +145,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
             <button
               onClick={(e) => { e.stopPropagation(); setOpenPickerId(isOpen ? null : pickerId); }}
               title="Link to a life goal"
-              className="p-0.5 rounded text-slate-300 hover:text-purple-500 hover:bg-purple-50 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+              className={`rounded text-slate-300 hover:text-purple-500 hover:bg-purple-50 transition-all focus:opacity-100 ${isMobile ? 'p-2 opacity-100' : 'p-0.5 opacity-0 group-hover:opacity-100'}`}
             >
               <Link2 size={11}/>
             </button>
@@ -357,7 +357,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
           <div className="bg-white p-6 rounded-3xl shadow-2xl w-full max-w-sm border border-slate-200">
             <div className="flex justify-between items-center mb-5">
                <h3 className="text-xl font-black text-slate-900">{eventEditor.isNew ? 'New Block' : 'Edit Block'}</h3>
-               <button onClick={() => setEventEditor(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={24}/></button>
+               <button onClick={() => setEventEditor(null)} className="text-slate-400 hover:text-slate-600 p-2 -mr-1"><X size={24}/></button>
             </div>
             <div className="space-y-5">
               {/* Block type */}
@@ -401,7 +401,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                   </div>
                 ) : null;
               })()}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                  <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Start</label>
                     <select className="w-full border border-slate-200 rounded-xl p-3 text-sm bg-slate-50 font-bold" value={eventEditor.startHour} onChange={e => setEventEditor({...eventEditor, startHour: e.target.value})}>
@@ -445,8 +445,8 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
             <div className="text-xs font-bold text-slate-400 mt-1.5">Week of {weekDates[0].getDate()}</div>
           </div>
           <div className="flex items-center gap-2">
-             <button onClick={() => jumpWeeks(-1)} className="p-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:bg-slate-50"><ChevronLeft size={20}/></button>
-             <button onClick={() => jumpWeeks(1)} className="p-2.5 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:bg-slate-50"><ChevronRight size={20}/></button>
+             <button onClick={() => jumpWeeks(-1)} className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:bg-slate-50"><ChevronLeft size={20}/></button>
+             <button onClick={() => jumpWeeks(1)} className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:bg-slate-50"><ChevronRight size={20}/></button>
           </div>
         </div>
         
@@ -475,8 +475,8 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
       {/* Mobile Tabs */}
       {isMobile && (
         <div className="flex border-b border-slate-200 bg-white">
-            <button onClick={() => setMobileTab('plan')} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 ${mobileTab === 'plan' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-400'}`}><Layout size={14}/> Daily Planner</button>
-            <button onClick={() => setMobileTab('strategy')} className={`flex-1 py-3 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 ${mobileTab === 'strategy' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-400'}`}><List size={14}/> Habits & Syncs</button>
+            <button onClick={() => setMobileTab('plan')} className={`flex-1 py-3.5 min-h-[48px] text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 ${mobileTab === 'plan' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-400'}`}><Layout size={14}/> Daily Planner</button>
+            <button onClick={() => setMobileTab('strategy')} className={`flex-1 py-3.5 min-h-[48px] text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 ${mobileTab === 'strategy' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-slate-400'}`}><List size={14}/> Habits & Syncs</button>
         </div>
       )}
 
@@ -631,7 +631,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                           <button
                             onClick={() => openFocusSuggestion(todo)}
                             title="Create focus block"
-                            className="flex-shrink-0 flex items-center gap-0.5 text-[9px] font-black px-2 py-1 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-all whitespace-nowrap"
+                            className="flex-shrink-0 flex items-center gap-1 text-[10px] font-black px-2.5 py-1.5 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-all whitespace-nowrap"
                           >
                             <CalendarDays size={9}/>
                             Block
@@ -666,8 +666,8 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                 if (e.key === 'Escape') { setIsAddingHabit(false); setNewHabitName(''); }
                               }}
                             />
-                            <button onClick={confirmAddHabit} className="bg-blue-600 text-white p-1.5 rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"><Check size={12}/></button>
-                            <button onClick={() => { setIsAddingHabit(false); setNewHabitName(''); }} className="text-slate-400 hover:text-slate-600 p-1.5 flex-shrink-0"><X size={12}/></button>
+                            <button onClick={confirmAddHabit} className="bg-blue-600 text-white p-2.5 rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"><Check size={14}/></button>
+                            <button onClick={() => { setIsAddingHabit(false); setNewHabitName(''); }} className="text-slate-400 hover:text-slate-600 p-2.5 flex-shrink-0"><X size={14}/></button>
                           </div>
                         )}
                         {activeHabits.length === 0 && !isAddingHabit && <div className="text-[10px] italic text-slate-400 text-center py-6 bg-slate-100/50 rounded-2xl border-2 border-dashed border-slate-200 cursor-pointer hover:bg-blue-50/50 hover:border-blue-200 hover:text-blue-400 transition-all" onClick={addNewHabit}>Click + to add a habit...</div>}
@@ -703,14 +703,14 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                   const dateKey = formatDateKey(date);
                                   const isDone = !!habit.completions[dateKey];
                                   return (
-                                    <button 
+                                    <button
                                       key={idx}
                                       onClick={() => toggleHabit(habit.id, dateKey)}
-                                      className={`w-5 h-5 flex items-center justify-center text-[8px] font-black transition-all rounded-full border-2 ${
+                                      className={`flex items-center justify-center font-black transition-all rounded-full border-2 ${isMobile ? 'w-9 h-9 text-xs' : 'w-5 h-5 text-[8px]'} ${
                                         isDone ? 'bg-blue-600 border-blue-600 text-white shadow-inner' : 'bg-slate-50 border-slate-200 text-slate-400 hover:border-blue-400 hover:text-blue-500'
                                       }`}
                                     >
-                                      {isDone ? <Check size={8} strokeWidth={5}/> : DAYS[idx][0]}
+                                      {isDone ? <Check size={isMobile ? 14 : 8} strokeWidth={5}/> : DAYS[idx][0]}
                                     </button>
                                   );
                                 })}

@@ -141,7 +141,7 @@ function PermissionButton({ onGranted }: PermissionButtonProps): React.ReactElem
   return (
     <button
       onClick={status === 'idle' ? handleRequest : undefined}
-      className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${buttonClass}`}
+      className={`flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 rounded-xl font-bold text-sm transition-all ${buttonClass}`}
     >
       <Shield size={15} />
       {label}
@@ -169,7 +169,7 @@ function TimeRow({
   onToggle, onHourChange, onMinuteChange,
 }: TimeRowProps): React.ReactElement {
   return (
-    <div className={`flex items-center gap-4 py-3 px-4 rounded-2xl transition-colors ${
+    <div className={`flex items-center gap-2 md:gap-4 py-3 px-3 md:px-4 rounded-2xl transition-colors ${
       enabled && !disabled ? 'bg-blue-50' : 'bg-slate-50'
     }`}>
       <button
@@ -217,7 +217,7 @@ function TimeRow({
       )}
 
       {enabled && !disabled && (
-        <span className="text-xs text-blue-600 font-bold w-20 text-right">
+        <span className="hidden sm:inline text-xs text-blue-600 font-bold w-20 text-right">
           {formatTime(hour, minute)}
         </span>
       )}
@@ -241,7 +241,7 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
   }, [settings, onChange]);
 
   return (
-    <div className="bg-slate-50 border-2 border-slate-50 p-10 rounded-[2.5rem]">
+    <div className="bg-slate-50 border-2 border-slate-50 p-5 md:p-10 rounded-[2rem] md:rounded-[2.5rem]">
       {/* Header */}
       <div className="flex items-center gap-4 mb-8">
         <div className="w-12 h-12 bg-violet-100 rounded-2xl flex items-center justify-center text-violet-600 shadow-lg shadow-violet-100/50">
@@ -333,7 +333,7 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
           />
 
           {/* Focus block reminder */}
-          <div className={`flex items-center gap-4 py-3 px-4 rounded-2xl transition-colors ${
+          <div className={`flex items-center gap-2 md:gap-4 py-3 px-3 md:px-4 rounded-2xl transition-colors ${
             settings.focusBlockReminder.enabled ? 'bg-blue-50' : 'bg-slate-50'
           }`}>
             <button
