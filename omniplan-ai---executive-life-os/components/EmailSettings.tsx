@@ -4,6 +4,7 @@ import { Plus, Trash2, TestTube, Check, X, Mail, AlertTriangle } from 'lucide-re
 import { EmailAccount } from '../types';
 import { AlertDialog } from './Dialog';
 import { platform } from '../services/platform';
+import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
 
 const PROVIDERS = [
   { id: 'gmail', label: 'Gmail', host: 'imap.gmail.com' },
@@ -16,17 +17,17 @@ const PROVIDERS = [
 // ---------------------------------------------------------------------------
 // Storage helpers — accounts are persisted WITHOUT passwords.
 // Passwords live in Electron safeStorage (keychain:set / keychain:get IPC).
+// All reads/writes go through the storage adapter so IndexedDB is used on web.
 // ---------------------------------------------------------------------------
 
 export function getEmailAccounts(): EmailAccount[] {
-  const saved = localStorage.getItem('omni_email_accounts');
-  return saved ? JSON.parse(saved) : [];
+  return storage.get<EmailAccount[]>(LOCAL_STORAGE_KEYS.EMAIL_ACCOUNTS) ?? [];
 }
 
 function saveEmailAccounts(accounts: EmailAccount[]) {
-  // Strip any lingering password fields before writing to localStorage.
+  // Strip any lingering password fields before persisting.
   const sanitised = accounts.map(({ password: _pw, ...rest }) => rest as EmailAccount);
-  localStorage.setItem('omni_email_accounts', JSON.stringify(sanitised));
+  storage.set(LOCAL_STORAGE_KEYS.EMAIL_ACCOUNTS, sanitised);
 }
 
 export const EmailSettings: React.FC = () => {

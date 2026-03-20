@@ -183,11 +183,15 @@ export async function migrateCredentials(): Promise<void> {
   }
 
   // ── 2. Email passwords ─────────────────────────────────────────────────────
-  const rawAccounts = localStorage.getItem('omni_email_accounts');
-  if (!rawAccounts) return;
+  // NOTE: this migration reads from the storage adapter (which may be IDB on
+  // web after Phase 9 init). The IndexedDB adapter already migrated the raw
+  // localStorage entries during its own bootstrap, so storage.get() here
+  // reads from the correct backend for this platform.
+  const accounts = storage.get<Array<{ id: string; password?: string; [key: string]: unknown }>>(
+    LOCAL_STORAGE_KEYS.EMAIL_ACCOUNTS,
+  );
+  if (!accounts) return;
   try {
-    const accounts: Array<{ id: string; password?: string; [key: string]: unknown }> =
-      JSON.parse(rawAccounts);
     let dirty = false;
     for (const account of accounts) {
       if (account.password) {
@@ -201,7 +205,7 @@ export async function migrateCredentials(): Promise<void> {
       }
     }
     if (dirty) {
-      localStorage.setItem('omni_email_accounts', JSON.stringify(accounts));
+      storage.set(LOCAL_STORAGE_KEYS.EMAIL_ACCOUNTS, accounts);
     }
   } catch {
     // Malformed storage — leave it alone

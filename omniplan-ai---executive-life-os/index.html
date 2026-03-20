@@ -2,9 +2,47 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com">
-    <title>OmniPlan AI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+    <!-- App identity -->
+    <title>OmniPlanner</title>
+    <meta name="description" content="Local-first executive life OS — goals, weekly planning, calendar execution, and habit tracking.">
+    <meta name="application-name" content="OmniPlanner">
+
+    <!-- PWA theme -->
+    <meta name="theme-color" content="#2563eb">
+    <meta name="color-scheme" content="light">
+
+    <!-- PWA manifest -->
+    <link rel="manifest" href="./manifest.json">
+
+    <!-- iOS/Safari PWA hints -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="OmniPlanner">
+    <link rel="apple-touch-icon" href="./icon-192.png">
+
+    <!-- Favicon -->
+    <link rel="icon" href="./favicon.ico">
+
+    <!--
+      Content Security Policy.
+      connect-src allowlist covers all AI provider APIs the user may configure.
+      'unsafe-inline' for scripts/styles is required for Vite dev mode; tighten
+      if building a hardened production CSP.
+    -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   script-src 'self' 'unsafe-inline';
+                   style-src 'self' 'unsafe-inline';
+                   font-src 'self' data:;
+                   img-src 'self' data:;
+                   worker-src 'self';
+                   connect-src 'self'
+                               https://generativelanguage.googleapis.com
+                               https://api.openai.com
+                               https://api.anthropic.com
+                               https://openrouter.ai">
 </head>
 <body class="min-h-screen">
     <div id="root"></div>
