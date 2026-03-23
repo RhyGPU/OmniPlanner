@@ -289,9 +289,7 @@ export default function App() {
    *   - Zoom levels (UI state)
    * Users restoring to a new device must re-enter credentials after restore.
    */
-  const handleLoadData = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleLoadData = async (file: File): Promise<void> => {
     try {
       const { warnings } = await uploadBackup(file);
 

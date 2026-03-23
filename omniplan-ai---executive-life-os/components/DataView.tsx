@@ -1,7 +1,10 @@
 
 import React, { useRef, useState, useCallback } from 'react';
-import { Download, Upload, Database, ShieldCheck, FileJson, Calendar as CalendarIcon, FileUp, CheckCircle, AlertCircle } from 'lucide-react';
-import { clearAllData } from '../utils/dataManager';
+import {
+  Download, Upload, Database, ShieldCheck, FileJson, Calendar as CalendarIcon,
+  FileUp, CheckCircle, AlertCircle, Eye, X, HardDrive, Lock,
+} from 'lucide-react';
+import { clearAllData, previewBackupFile, BackupPreview } from '../utils/dataManager';
 import { parseIcsFile } from '../utils/icsParser';
 import { CalendarEvent, NotificationSettings } from '../types';
 import { AISettings } from './AISettings';
@@ -12,8 +15,8 @@ import { platform } from '../services/platform';
 
 interface DataViewProps {
   handleSaveData: () => void;
-  /** Async — validates backup before writing; shows alert then reloads on success. */
-  handleLoadData: (e: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
+  /** Async — validates backup and writes to storage; the caller shows an alert then reloads. */
+  handleLoadData: (file: File) => Promise<void>;
   onImportIcsEvents: (events: { date: Date; event: CalendarEvent }[]) => void;
   notificationSettings: NotificationSettings;
   onNotificationSettingsChange: (settings: NotificationSettings) => void;
@@ -29,51 +32,83 @@ export const DataView: React.FC<DataViewProps> = ({
     const fileInputRef = useRef<HTMLInputElement>(null);
     const icsInputRef = useRef<HTMLInputElement>(null);
     const [dragOver, setDragOver] = useState(false);
-    const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error' | 'restoring'>('idle');
+
+    // Two-step restore state
+    const [pendingFile, setPendingFile] = useState<File | null>(null);
+    const [preview, setPreview] = useState<BackupPreview | null>(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [previewError, setPreviewError] = useState<string | null>(null);
+    const [restoreStatus, setRestoreStatus] = useState<'idle' | 'restoring' | 'success' | 'error'>('idle');
+    const [restoreError, setRestoreError] = useState<string | null>(null);
+
     const [icsStatus, setIcsStatus] = useState<'idle' | 'success' | 'error'>('idle');
     const [icsCount, setIcsCount] = useState(0);
     const [showNukeConfirm, setShowNukeConfirm] = useState(false);
 
-    const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-        setUploadStatus('restoring');
+    const handleFilePick = useCallback(async (file: File) => {
+        setPreviewError(null);
+        setPreview(null);
+        setPendingFile(null);
+        setPreviewLoading(true);
         try {
-            await handleLoadData(e);
-            // Success: App.tsx will show an alert and schedule a reload.
-            // Keep 'restoring' state — page will reload before idle fires.
-            setUploadStatus('success');
-        } catch {
-            setUploadStatus('error');
-            setTimeout(() => setUploadStatus('idle'), 4000);
+            const result = await previewBackupFile(file);
+            setPendingFile(file);
+            setPreview(result);
+        } catch (err) {
+            setPreviewError(err instanceof Error ? err.message : 'Could not read the backup file.');
+        } finally {
+            setPreviewLoading(false);
+            // Reset input so the same file can be re-selected
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
-        // Reset the file input so the same file can be re-uploaded
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
+    }, []);
+
+    const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) handleFilePick(file);
+    }, [handleFilePick]);
+
+    const handleConfirmRestore = useCallback(async () => {
+        if (!pendingFile) return;
+        setRestoreStatus('restoring');
+        setRestoreError(null);
+        try {
+            await handleLoadData(pendingFile);
+            setRestoreStatus('success');
+            // App.tsx will show alert and schedule reload; keep 'success' state
+        } catch (err) {
+            setRestoreStatus('error');
+            setRestoreError(err instanceof Error ? err.message : 'Unknown error');
+            setTimeout(() => {
+                setRestoreStatus('idle');
+                setRestoreError(null);
+            }, 5000);
         }
-    }, [handleLoadData]);
+    }, [pendingFile, handleLoadData]);
+
+    const handleCancelPreview = useCallback(() => {
+        setPendingFile(null);
+        setPreview(null);
+        setPreviewError(null);
+        setRestoreStatus('idle');
+        setRestoreError(null);
+    }, []);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         setDragOver(false);
         const file = e.dataTransfer.files[0];
         if (file && file.name.endsWith('.json')) {
-            // Create a synthetic event-like object for the handler
-            const dataTransfer = new DataTransfer();
-            dataTransfer.items.add(file);
-            if (fileInputRef.current) {
-                fileInputRef.current.files = dataTransfer.files;
-                fileInputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
-            }
+            handleFilePick(file);
         }
-    }, []);
+    }, [handleFilePick]);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         setDragOver(true);
     }, []);
 
-    const handleDragLeave = useCallback(() => {
-        setDragOver(false);
-    }, []);
+    const handleDragLeave = useCallback(() => setDragOver(false), []);
 
     const handleIcsImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -107,6 +142,21 @@ export const DataView: React.FC<DataViewProps> = ({
     }, [onImportIcsEvents]);
 
     const isElectron = platform.shell.isAvailable();
+
+    // Format the backup export date for the preview panel
+    const formatPreviewDate = (iso: string) => {
+        if (!iso) return 'Unknown';
+        try {
+            return new Date(iso).toLocaleString(undefined, {
+                year: 'numeric', month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit',
+            });
+        } catch {
+            return iso;
+        }
+    };
+
+    const isRestoreBusy = restoreStatus === 'restoring' || restoreStatus === 'success';
 
     return (
       <div className="flex flex-col h-full bg-white p-12 overflow-y-auto custom-scrollbar">
@@ -150,7 +200,10 @@ export const DataView: React.FC<DataViewProps> = ({
                 />
             </div>
 
+            {/* Export / Restore */}
             <div className="grid md:grid-cols-2 gap-10 mb-10">
+
+                {/* Export card */}
                 <div
                     onClick={handleSaveData}
                     className="group bg-slate-50 border-2 border-slate-50 p-10 rounded-[2.5rem] cursor-pointer hover:border-blue-600 hover:bg-white hover:shadow-2xl transition-all duration-500"
@@ -158,17 +211,41 @@ export const DataView: React.FC<DataViewProps> = ({
                     <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600 mb-8 group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-xl shadow-blue-100/50">
                         <Download size={32}/>
                     </div>
-                    <h3 className="font-black text-2xl text-slate-900 mb-3 tracking-tight">Export Global State</h3>
-                    <p className="text-slate-500 font-bold leading-relaxed text-sm">Download a high-fidelity JSON archive of all habits, events, emails, and life goals.</p>
+                    <h3 className="font-black text-2xl text-slate-900 mb-3 tracking-tight">Export Backup</h3>
+                    <p className="text-slate-500 font-bold leading-relaxed text-sm mb-5">
+                        Download a complete JSON backup of your planner data.
+                    </p>
+                    {/* Included / excluded detail */}
+                    <div className="space-y-3 text-[11px] font-bold">
+                        <div>
+                            <div className="text-emerald-600 uppercase tracking-widest mb-1">Included</div>
+                            <ul className="text-slate-500 space-y-0.5">
+                                <li>✓ Weekly planner (tasks, habits, events)</li>
+                                <li>✓ Monthly calendar data</li>
+                                <li>✓ Life goals &amp; structured goal items</li>
+                                <li>✓ Email inbox</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <div className="text-slate-400 uppercase tracking-widest mb-1">Not included</div>
+                            <ul className="text-slate-400 space-y-0.5">
+                                <li>✗ API keys &amp; email passwords (device-local)</li>
+                                <li>✗ Notification preferences (device-local)</li>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
 
+                {/* Restore card — two-step flow */}
                 <div
                     className={`group bg-slate-50 border-2 p-10 rounded-[2.5rem] relative transition-all duration-500 ${
                         dragOver
                             ? 'border-emerald-500 bg-emerald-50 shadow-2xl scale-[1.02]'
-                            : uploadStatus === 'success' || uploadStatus === 'restoring'
+                            : preview
+                            ? 'border-indigo-300 bg-indigo-50/30'
+                            : restoreStatus === 'success' || restoreStatus === 'restoring'
                             ? 'border-emerald-500 bg-emerald-50/50'
-                            : uploadStatus === 'error'
+                            : restoreStatus === 'error' || previewError
                             ? 'border-red-300 bg-red-50/50'
                             : 'border-slate-50 hover:border-emerald-600 hover:bg-white hover:shadow-2xl'
                     }`}
@@ -176,49 +253,153 @@ export const DataView: React.FC<DataViewProps> = ({
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                 >
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        onChange={handleFileChange}
-                        accept=".json"
-                        className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                        disabled={uploadStatus === 'restoring'}
-                    />
-                    <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-8 transition-all shadow-xl ${
-                        uploadStatus === 'success' || uploadStatus === 'restoring'
-                            ? 'bg-emerald-600 text-white shadow-emerald-100/50'
-                            : uploadStatus === 'error'
-                            ? 'bg-red-100 text-red-600 shadow-red-100/50'
-                            : 'bg-emerald-100 text-emerald-600 group-hover:scale-110 group-hover:bg-emerald-600 group-hover:text-white shadow-emerald-100/50'
-                    }`}>
-                        {uploadStatus === 'success' || uploadStatus === 'restoring'
-                            ? <CheckCircle size={32}/>
-                            : uploadStatus === 'error'
-                            ? <AlertCircle size={32}/>
-                            : <Upload size={32}/>}
-                    </div>
-                    <h3 className="font-black text-2xl text-slate-900 mb-3 tracking-tight">
-                        {uploadStatus === 'restoring'
-                            ? 'Restoring…'
-                            : uploadStatus === 'success'
-                            ? 'Restored! Reloading…'
-                            : uploadStatus === 'error'
-                            ? 'Restore Failed'
-                            : 'Restore Local State'}
-                    </h3>
-                    <p className="text-slate-500 font-bold leading-relaxed text-sm">
-                        {dragOver
-                            ? 'Drop your backup file here…'
-                            : uploadStatus === 'restoring'
-                            ? 'Validating and writing backup data…'
-                            : uploadStatus === 'success'
-                            ? 'Backup written. The app will reload momentarily.'
-                            : uploadStatus === 'error'
-                            ? 'The backup file could not be restored. See the error above.'
-                            : 'Click or drag a .json backup file to restore your workspace. Credentials and notification preferences are not affected.'}
-                    </p>
+                    {/* Hidden file input — only active when no preview */}
+                    {!preview && !isRestoreBusy && (
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            onChange={handleFileChange}
+                            accept=".json"
+                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                            disabled={previewLoading}
+                        />
+                    )}
+
+                    {/* Step 1: idle / loading / parse error */}
+                    {!preview && (
+                        <>
+                            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-8 transition-all shadow-xl ${
+                                previewLoading
+                                    ? 'bg-indigo-100 text-indigo-600 shadow-indigo-100/50'
+                                    : restoreStatus === 'success' || restoreStatus === 'restoring'
+                                    ? 'bg-emerald-600 text-white shadow-emerald-100/50'
+                                    : restoreStatus === 'error' || previewError
+                                    ? 'bg-red-100 text-red-600 shadow-red-100/50'
+                                    : 'bg-emerald-100 text-emerald-600 group-hover:scale-110 group-hover:bg-emerald-600 group-hover:text-white shadow-emerald-100/50'
+                            }`}>
+                                {restoreStatus === 'success' || restoreStatus === 'restoring'
+                                    ? <CheckCircle size={32}/>
+                                    : restoreStatus === 'error' || previewError
+                                    ? <AlertCircle size={32}/>
+                                    : previewLoading
+                                    ? <Eye size={32}/>
+                                    : <Upload size={32}/>}
+                            </div>
+                            <h3 className="font-black text-2xl text-slate-900 mb-3 tracking-tight">
+                                {restoreStatus === 'restoring'
+                                    ? 'Restoring…'
+                                    : restoreStatus === 'success'
+                                    ? 'Restored! Reloading…'
+                                    : restoreStatus === 'error'
+                                    ? 'Restore Failed'
+                                    : previewLoading
+                                    ? 'Reading backup…'
+                                    : 'Restore Backup'}
+                            </h3>
+                            <p className="text-slate-500 font-bold leading-relaxed text-sm">
+                                {dragOver
+                                    ? 'Drop your backup file here…'
+                                    : restoreStatus === 'restoring'
+                                    ? 'Writing backup data to local storage…'
+                                    : restoreStatus === 'success'
+                                    ? 'Backup written. The app will reload momentarily.'
+                                    : restoreStatus === 'error'
+                                    ? (restoreError ?? 'The backup could not be restored.')
+                                    : previewError
+                                    ? previewError
+                                    : previewLoading
+                                    ? 'Validating file…'
+                                    : 'Click or drag a .json backup file. You\'ll see a preview before anything is overwritten.'}
+                            </p>
+                        </>
+                    )}
+
+                    {/* Step 2: Preview panel */}
+                    {preview && (
+                        <div className="relative z-20">
+                            <div className="flex items-start justify-between mb-5">
+                                <div>
+                                    <div className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Preview — nothing written yet</div>
+                                    <h3 className="font-black text-xl text-slate-900 tracking-tight">Confirm Restore</h3>
+                                </div>
+                                <button
+                                    onClick={handleCancelPreview}
+                                    className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+                                    title="Cancel"
+                                >
+                                    <X size={18}/>
+                                </button>
+                            </div>
+
+                            {/* Backup metadata */}
+                            <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-4 space-y-2 text-xs font-bold">
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Exported</span>
+                                    <span className="text-slate-700">{formatPreviewDate(preview.exportDate)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Format version</span>
+                                    <span className="text-slate-700">{preview.version}</span>
+                                </div>
+                            </div>
+
+                            {/* Counts */}
+                            <div className="grid grid-cols-3 gap-2 mb-4">
+                                {[
+                                    { label: 'Weeks', value: preview.weekCount },
+                                    { label: 'Goals', value: preview.goalCount },
+                                    { label: 'Emails', value: preview.emailCount },
+                                ].map(({ label, value }) => (
+                                    <div key={label} className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+                                        <div className="text-lg font-black text-slate-800">{value}</div>
+                                        <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{label}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Format note */}
+                            {!preview.hasGoalItems && (
+                                <p className="text-[10px] font-bold text-amber-600 mb-3 bg-amber-50 rounded-xl px-3 py-2 border border-amber-100">
+                                    Older backup format — life goals will be migrated on next app start.
+                                </p>
+                            )}
+
+                            {/* Warnings */}
+                            {preview.warnings.length > 0 && (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
+                                    {preview.warnings.map((w, i) => (
+                                        <p key={i} className="text-[10px] font-bold text-amber-700">• {w}</p>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* What will be restored */}
+                            <p className="text-[10px] font-bold text-slate-400 mb-4 leading-relaxed">
+                                Restoring will overwrite your current planner data. API keys, email passwords, and notification preferences are not affected — they live outside the backup.
+                            </p>
+
+                            {/* Actions */}
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handleCancelPreview}
+                                    className="flex-1 py-3 rounded-2xl border-2 border-slate-200 font-black text-xs text-slate-600 hover:bg-slate-50 transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleConfirmRestore}
+                                    disabled={isRestoreBusy}
+                                    className="flex-1 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-emerald-100 transition-all active:scale-95 disabled:opacity-60 disabled:cursor-default"
+                                >
+                                    {restoreStatus === 'restoring' ? 'Restoring…' : 'Confirm Restore'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
+
+            {/* ICS Import */}
             <div className="grid md:grid-cols-1 gap-10 mb-20">
                 <div
                     className={`group bg-slate-50 border-2 p-12 rounded-[2.5rem] flex items-center gap-10 relative cursor-pointer transition-all duration-500 ${
@@ -259,6 +440,7 @@ export const DataView: React.FC<DataViewProps> = ({
                 </div>
             </div>
 
+            {/* Zero-knowledge / nuke footer */}
             <div className="bg-slate-900 text-white rounded-[3rem] p-12 flex flex-col md:flex-row items-center gap-10 border border-slate-800 shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
                 <div className="w-24 h-24 bg-blue-500/20 rounded-full flex items-center justify-center border-2 border-blue-500/30 flex-shrink-0">
@@ -266,7 +448,7 @@ export const DataView: React.FC<DataViewProps> = ({
                 </div>
                 <div className="flex-1 relative z-10 text-center md:text-left">
                     <h3 className="text-3xl font-black mb-3 tracking-tighter">Zero-Knowledge Storage</h3>
-                    <p className="text-slate-400 font-bold leading-relaxed">OmniPlan operates on a 100% client-side logic. Your high-performance dashboard, habits, and secrets never touch our infrastructure.</p>
+                    <p className="text-slate-400 font-bold leading-relaxed">OmniPlanner runs entirely on your device. Your planner data, habits, and credentials never leave your machine — there is no server, no account, and no sync.</p>
                 </div>
                 <div className="flex gap-4">
                     <button
@@ -286,21 +468,22 @@ export const DataView: React.FC<DataViewProps> = ({
                 </div>
             </div>
 
+            {/* Footer stats */}
             <div className="mt-20 pt-16 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-10">
                 <div className="flex flex-col items-center text-center p-8 bg-slate-50 rounded-[2.5rem]">
                     <FileJson className="text-slate-300 mb-5" size={40}/>
-                    <div className="text-sm font-black text-slate-900 uppercase tracking-widest">v2.0.0 Protocol</div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase mt-2">Week-Isolated Persistence</div>
+                    <div className="text-sm font-black text-slate-900 uppercase tracking-widest">v3.0 Backup</div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase mt-2">Goals + planner unified</div>
                 </div>
                 <div className="flex flex-col items-center text-center p-8 bg-slate-50 rounded-[2.5rem]">
-                    <CalendarIcon className="text-slate-300 mb-5" size={40}/>
-                    <div className="text-sm font-black text-slate-900 uppercase tracking-widest">Real-Time Sync</div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase mt-2">Month & Week Unified</div>
+                    <HardDrive className="text-slate-300 mb-5" size={40}/>
+                    <div className="text-sm font-black text-slate-900 uppercase tracking-widest">Local-Only Storage</div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase mt-2">No server, no account</div>
                 </div>
                 <div className="flex flex-col items-center text-center p-8 bg-slate-50 rounded-[2.5rem]">
-                    <ShieldCheck className="text-slate-300 mb-5" size={40}/>
+                    <Lock className="text-slate-300 mb-5" size={40}/>
                     <div className="text-sm font-black text-slate-900 uppercase tracking-widest">Privacy First</div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase mt-2">Local Sandbox</div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase mt-2">Credentials excluded from backups</div>
                 </div>
             </div>
         </div>

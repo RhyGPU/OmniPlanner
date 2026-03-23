@@ -148,6 +148,85 @@ export interface UploadBackupResult {
 }
 
 /**
+ * Lightweight summary of a backup file derived by parsing but NOT writing.
+ * Used to show the user a preview before they confirm the restore.
+ */
+export interface BackupPreview {
+  /** Backup format version string, e.g. "3.0". */
+  version: string;
+  /** ISO export timestamp. */
+  exportDate: string;
+  /** Number of week records in the backup. */
+  weekCount: number;
+  /** Number of structured GoalItem records (Phase 2+). */
+  goalCount: number;
+  /** Number of email records. */
+  emailCount: number;
+  /** True when the backup uses the modern goalItems format. */
+  hasGoalItems: boolean;
+  /** Non-fatal validation warnings. */
+  warnings: string[];
+}
+
+/**
+ * Parse and validate a backup file for preview purposes — read-only.
+ * Does NOT write anything to storage. Rejects with a descriptive Error on
+ * parse/validation failure so the UI can surface the message.
+ */
+export const previewBackupFile = (file: File): Promise<BackupPreview> => {
+  return new Promise((resolve, reject) => {
+    if (!file.name.endsWith('.json')) {
+      reject(new Error('Please select a .json backup file.'));
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result;
+        if (typeof text !== 'string' || text.trim().length === 0) {
+          reject(new Error('The file is empty.'));
+          return;
+        }
+
+        let raw: unknown;
+        try {
+          raw = JSON.parse(text);
+        } catch {
+          reject(new Error('The file is not valid JSON.'));
+          return;
+        }
+
+        const validation = validateBackup(raw);
+        if (!validation.valid) {
+          reject(new Error(`Backup validation failed: ${validation.errors.join(' ')}`));
+          return;
+        }
+
+        const normalized = normalizeBackup(raw);
+        const maybe = raw as Partial<OmniPlanBackup>;
+
+        resolve({
+          version: maybe.version ?? 'unknown',
+          exportDate: maybe.exportDate ?? '',
+          weekCount: Object.keys(normalized.allWeeks).length,
+          goalCount: (normalized.goalItems ?? []).length,
+          emailCount: normalized.emails.length,
+          hasGoalItems: (normalized.goalItems ?? []).length > 0,
+          warnings: validation.warnings,
+        });
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error('Failed to read backup file.'));
+      }
+    };
+
+    reader.onerror = () => reject(new Error('Failed to read the file. Please try again.'));
+    reader.readAsText(file);
+  });
+};
+
+/**
  * Parse, validate, and import a backup file.
  *
  * VALIDATION:
