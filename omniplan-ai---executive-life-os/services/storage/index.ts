@@ -58,6 +58,9 @@ export const LOCAL_STORAGE_KEYS = {
   SCHEMA_VERSION:   'omni_schema_version',
   /** Phase 11B: local notification reminder configuration. Non-sensitive. */
   NOTIFICATION_SETTINGS: 'omni_notification_settings',
+  /** Phase 14: set to true once the user has dismissed the first-run welcome card.
+   *  Separate from planner-domain data so restore/import never clears it. */
+  ONBOARDING_DISMISSED: 'omni_onboarding_dismissed',
 } as const;
 
 // ---------------------------------------------------------------------------
