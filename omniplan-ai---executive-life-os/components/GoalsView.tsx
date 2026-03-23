@@ -33,6 +33,15 @@ interface GoalsViewProps {
 
 type GoalTab = 'ten_year' | 'five_year' | 'three_year' | 'one_year' | 'monthly';
 
+/** One-line prompt shown inside an empty year card. Calm, not prescriptive. */
+const TIMEFRAME_HINT: Record<GoalTab, string> = {
+  ten_year:   'What does your life look like a decade from now?',
+  five_year:  'Where do you want to be in five years?',
+  three_year: 'What milestones would make this period a success?',
+  one_year:   'What do you most want to accomplish this year?',
+  monthly:    'What single focus would make this month worthwhile?',
+};
+
 const TABS: { id: GoalTab; icon: React.ReactNode; label: string; yearNav: boolean; yearCount?: number }[] = [
   { id: 'ten_year',   icon: <Compass size={16}/>,  label: 'Horizon',     yearNav: true,  yearCount: 10 },
   { id: 'five_year',  icon: <Rocket size={16}/>,   label: 'Trajectory',  yearNav: true,  yearCount: 5  },
@@ -228,6 +237,12 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
             <div key={year} className="bg-slate-50 p-8 rounded-3xl border border-slate-100 hover:border-slate-200 transition-all">
               <div className="text-3xl font-black text-blue-600 tracking-tighter mb-5">{year}</div>
 
+              {activeItems.length === 0 && (
+                <p className="text-xs text-slate-400 italic leading-relaxed mb-3">
+                  {TIMEFRAME_HINT[timeframe]}
+                </p>
+              )}
+
               {timeframe === 'five_year' ? (
                 <div className="space-y-4">
                   {activeItems.map(item => (
@@ -292,6 +307,11 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
       <div className="animate-in fade-in slide-in-from-bottom-6 duration-400 max-w-2xl">
         <div className="bg-slate-50 p-8 rounded-3xl border border-slate-100">
           <div className="text-3xl font-black text-blue-600 tracking-tighter mb-5">{currentYear}</div>
+          {active.length === 0 && (
+            <p className="text-xs text-slate-400 italic leading-relaxed mb-3">
+              {TIMEFRAME_HINT['one_year']}
+            </p>
+          )}
           <div className="space-y-1">
             {active.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} hist={hist(item.id)} {...rowProps}/>)}
           </div>
@@ -338,6 +358,9 @@ export const GoalsView: React.FC<GoalsViewProps> = ({ goalItems, setGoalItems, a
               isCurrentMonth ? 'text-blue-600 border-blue-200' : 'text-slate-900 border-slate-200'
             }`}>{month}</div>
             <div className="flex-1 space-y-1">
+              {monthItems.length === 0 && isCurrentMonth && (
+                <p className="text-[10px] text-slate-400 italic leading-relaxed">{TIMEFRAME_HINT['monthly']}</p>
+              )}
               {monthItems.map(item => <GoalRow key={item.id} item={item} progress={prog(item.id)} coverage={cov(item.id)} hist={hist(item.id)} {...rowProps}/>)}
             </div>
             <button

@@ -458,6 +458,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
               onAdd={() => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, business: [...currentWeek.goals.business, { id: `bg-${Date.now()}`, text: '', done: false }]}}) }
               placeholder="Strategic aim..."
               renderSuffix={makeGoalSuffix('business', currentWeek.goals.business)}
+              emptyMessage="What's the main thing to advance professionally this week?"
             />
         </div>
         <div className="flex-1 p-4 lg:p-6 flex flex-col min-w-[200px]">
@@ -468,6 +469,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
               onAdd={() => updateCurrentWeek({...currentWeek, goals: {...currentWeek.goals, personal: [...currentWeek.goals.personal, { id: `pg-${Date.now()}`, text: '', done: false }]}}) }
               placeholder="Personal win..."
               renderSuffix={makeGoalSuffix('personal', currentWeek.goals.personal)}
+              emptyMessage="What personal goal or habit do you want to protect this week?"
             />
         </div>
       </div>

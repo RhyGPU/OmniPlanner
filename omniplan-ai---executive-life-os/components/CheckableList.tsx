@@ -11,6 +11,8 @@ interface CheckableListProps {
   colorClass?: string;
   /** Optional slot rendered after the text input for each row (e.g. goal-link badge). */
   renderSuffix?: (item: Todo, index: number) => React.ReactNode;
+  /** Shown in place of the item list when items is empty. Calm, one-line hint. */
+  emptyMessage?: string;
 }
 
 const AutoSizeTextarea = ({ 
@@ -67,6 +69,7 @@ export const CheckableList: React.FC<CheckableListProps> = ({
   placeholder,
   colorClass = "text-slate-700",
   renderSuffix,
+  emptyMessage,
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
     if (e.key === 'Enter') { 
@@ -80,6 +83,9 @@ export const CheckableList: React.FC<CheckableListProps> = ({
 
   return (
     <div className="space-y-3 w-full">
+      {items.length === 0 && emptyMessage && (
+        <p className="text-xs text-slate-400 italic leading-relaxed py-1">{emptyMessage}</p>
+      )}
       {items.map((item, index) => (
         <div key={item.id} className="flex items-start gap-1.5 group animate-in slide-in-from-left-2 duration-200 w-full relative">
           <button
