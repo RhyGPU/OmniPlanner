@@ -12,6 +12,7 @@ import { getMilestoneForStreak, getFlameColorClass } from '../utils/habitMilesto
 import { CheckableList } from './CheckableList';
 import { ConfirmDialog } from './Dialog';
 import { predictMainEvent } from '../services/ai';
+import { getAIReadiness } from '../services/ai/readiness';
 import {
   getUnscheduledWeeklyLinkedTodos,
   getUnscheduledLinkedTaskCountsByDay,
@@ -487,10 +488,29 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
         {(!isMobile || mobileTab === 'strategy') && (
             <div className={`w-full lg:w-56 shrink-0 flex flex-col border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50/20 overflow-y-auto custom-scrollbar ${isMobile ? 'flex-1' : ''}`}>
                 <div className="p-4 lg:p-5 border-b border-slate-200 bg-indigo-50/50">
-                    <button onClick={handleOptimizeFullWeek} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-2xl shadow-lg transition-all active:scale-95 group">
-                        <Zap size={16} className="group-hover:animate-pulse fill-white"/>
-                        <span className="text-xs font-black uppercase tracking-tight">AI Optimize Week</span>
-                    </button>
+                    {(() => {
+                      const ai = getAIReadiness();
+                      return (
+                        <>
+                          <button
+                            onClick={ai.canRun ? handleOptimizeFullWeek : undefined}
+                            className={`w-full flex items-center justify-center gap-2 py-4 rounded-2xl shadow-lg transition-all group ${
+                              ai.canRun
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95'
+                                : 'bg-slate-200 text-slate-400 cursor-default shadow-none'
+                            }`}
+                          >
+                            <Zap size={16} className={ai.canRun ? 'group-hover:animate-pulse fill-white' : ''}/>
+                            <span className="text-xs font-black uppercase tracking-tight">AI Optimize Week</span>
+                          </button>
+                          {!ai.canRun && (
+                            <p className="text-[10px] text-slate-400 text-center mt-2 leading-relaxed px-1">
+                              {ai.hint}
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                 </div>
 
                 {/* Week Review — collapsed by default, shows execution analytics */}
