@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Brain, Eye, EyeOff, ExternalLink, CheckCircle, Server } from 'lucide-react';
 import { AIProviderID, AI_PROVIDERS } from '../services/ai/types';
 import { getAISettings, saveAISettings, initAICredentials } from '../services/settings';
+import { platform } from '../services/platform';
 
 export const AISettings: React.FC = () => {
   const [provider, setProvider] = useState<AIProviderID>('none');
@@ -160,11 +161,7 @@ export const AISettings: React.FC = () => {
               className="inline-flex items-center gap-2 text-xs font-black text-indigo-600 hover:text-indigo-800 transition-colors"
               onClick={(e) => {
                 e.preventDefault();
-                if ((window as any).electronAPI?.openExternal) {
-                  (window as any).electronAPI.openExternal(currentInfo.docsUrl);
-                } else {
-                  window.open(currentInfo.docsUrl, '_blank');
-                }
+                platform.shell.openExternal(currentInfo.docsUrl);
               }}
             >
               <ExternalLink size={14}/>

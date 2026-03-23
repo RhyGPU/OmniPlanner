@@ -48,6 +48,9 @@ export interface HabitStreak {
   percentageComplete: number; // Completion percentage
 }
 
+/** Phase 5: discriminates calendar block purpose for scheduling intelligence. */
+export type CalendarEventKind = 'meeting' | 'focus' | 'task_block' | 'routine';
+
 export interface CalendarEvent {
   id: string | number;
   title: string;
@@ -56,6 +59,12 @@ export interface CalendarEvent {
   duration: number;
   color: string;
   repeating?: boolean; // Whether this event repeats to future weeks
+  // Phase 5: execution linkage — all optional, backward-compatible
+  eventKind?: CalendarEventKind;
+  /** Link to a GoalItem.id — this block supports that goal. */
+  parentGoalId?: string;
+  /** Link to a specific Todo.id — this block is scheduled time for that task. */
+  linkedTodoId?: string | number;
 }
 
 export interface LifeGoals {
@@ -127,4 +136,55 @@ export enum Tab {
   Weekly = 'weekly',
   Goals = 'goals',
   Data = 'data'
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11B: Local notification reminder configuration
+// ---------------------------------------------------------------------------
+
+/**
+ * User-configured local notification reminder settings.
+ *
+ * Stored in non-sensitive storage (omni_notification_settings).
+ * No credentials, no PII — only time preferences and enable flags.
+ *
+ * PLATFORM BEHAVIOUR:
+ *   Capacitor (mobile): Notifications persist across app restarts via
+ *     UNCalendarTrigger (iOS) / AlarmManager (Android). Requires permission.
+ *   Web (PWA):          Best-effort via setTimeout + Web Notifications API.
+ *     Only fires while the tab is open. No cross-session persistence.
+ *   Electron:           Not implemented — nullNotifications is used.
+ *     Desktop: Electron has its own notification APIs; integration is a future task.
+ */
+export interface NotificationSettings {
+  /** Master switch. When false, all reminders are cancelled. */
+  enabled: boolean;
+
+  /** Morning prompt to open and plan the day. */
+  dailyPlannerReminder: {
+    enabled: boolean;
+    /** Local hour (0–23). Default: 8. */
+    hour: number;
+    /** Local minute (0–59). Default: 0. */
+    minute: number;
+  };
+
+  /** Evening habit completion check-in. */
+  habitReminder: {
+    enabled: boolean;
+    /** Local hour (0–23). Default: 21. */
+    hour: number;
+    /** Local minute (0–59). Default: 0. */
+    minute: number;
+  };
+
+  /** Alert before a focus block begins. */
+  focusBlockReminder: {
+    enabled: boolean;
+    /**
+     * How many minutes before the block's startHour to fire.
+     * 0 = at the exact start time.
+     */
+    minutesBefore: number;
+  };
 }

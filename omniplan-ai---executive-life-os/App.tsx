@@ -8,13 +8,16 @@ import { WeeklyPlannerView } from './components/WeeklyPlannerView';
 import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
 import { AlertDialog } from './components/Dialog';
-import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit } from './types';
+import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit, NotificationSettings } from './types';
 import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
 import { saveGoalItems } from './utils/goalManager';
-import { initAICredentials, migrateCredentials } from './services/storage/secureSettings';
+import { initAICredentials, migrateCredentials, runMobileSecureMigration } from './services/storage/secureSettings';
+import { getNotificationSettings, saveNotificationSettings } from './services/storage/notificationSettings';
+import { syncReminders } from './utils/reminderSync';
 import { formatDateKey } from './constants';
-import { storage, LOCAL_STORAGE_KEYS } from './services/storage';
+import { storage, LOCAL_STORAGE_KEYS, getStorageStatus } from './services/storage';
+import type { StorageStatus } from './services/storage';
 
 const INITIAL_EMAILS: Email[] = [
   { id: 1, provider: 'internal', sender: "OmniPlan Core", subject: "Executive System Ready", preview: "Your dashboard is ready...", body: "Welcome to OmniPlan!\n\nThis system is designed for high-performance scheduling. Your weekly planner, monthly overview, and life vision board are now active.\n\nUse the 'AI Optimize Week' feature to automatically generate focus themes based on your historical data and current tasks.\n\nBest,\nOmniPlan Team", time: "09:00 AM", read: false },
@@ -25,6 +28,9 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [aiLoading, setAiLoading] = useState(false);
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
+
+  // Storage health — read once at mount (set synchronously during startup before render)
+  const [storageStatus] = useState<StorageStatus>(() => getStorageStatus());
 
   // Per-tab zoom levels
   const [zoomLevels, setZoomLevels] = useState<Record<string, number>>(
@@ -79,11 +85,50 @@ export default function App() {
     () => storage.get<GoalItem[]>(LOCAL_STORAGE_KEYS.GOAL_ITEMS) ?? [],
   );
 
-  // One-time startup: migrate plaintext credentials to safeStorage, then
-  // warm the renderer-side API key cache. Both operations are idempotent.
-  useEffect(() => {
-    migrateCredentials().then(() => initAICredentials());
+  // Notification reminder settings (non-sensitive, stored in IDB / localStorage)
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(
+    () => getNotificationSettings(),
+  );
+
+  const handleNotificationSettingsChange = useCallback((settings: NotificationSettings) => {
+    setNotificationSettings(settings);
+    saveNotificationSettings(settings);
   }, []);
+
+  // One-time startup:
+  //   1. Run mobile secure migration (Phase 11A): drain @capacitor/preferences
+  //      credentials into native Keychain / Keystore. No-op on Electron / web.
+  //   2. Migrate plaintext localStorage credentials to platform.credentials.
+  //   3. Warm the renderer-side API key cache.
+  //   All operations are idempotent.
+  useEffect(() => {
+    runMobileSecureMigration()
+      .then(() => migrateCredentials())
+      .then(() => initAICredentials());
+  }, []);
+
+  // Sync local notifications whenever notification settings change, or when
+  // today's focus events or habit list changes (for accurate reminder targets).
+  const todayDateKey = formatDateKey(currentDate);
+  const todayFocusEventsKey = useMemo(() => {
+    const dayPlan = currentWeek.dailyPlans?.[todayDateKey];
+    const events = (dayPlan?.events ?? []).filter(e => e.eventKind === 'focus');
+    return events.map(e => `${e.id}:${e.startHour}`).join(',');
+  }, [currentWeek, todayDateKey]);
+
+  const activeHabitsKey = useMemo(() => {
+    return (currentWeek.habits ?? [])
+      .filter(h => !h.archived && !h.deletedAt)
+      .map(h => h.id)
+      .join(',');
+  }, [currentWeek.habits]);
+
+  useEffect(() => {
+    syncReminders(notificationSettings, currentWeek, currentDate).catch(
+      e => console.error('[OmniPlanner] syncReminders failed:', e),
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationSettings, todayFocusEventsKey, activeHabitsKey]);
 
   // Global Persistence Effect
   useEffect(() => {
@@ -211,20 +256,46 @@ export default function App() {
     downloadBackup();
   }, []);
 
-  const handleLoadData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  /**
+   * Restore handler — validates, writes to storage, then reloads the page.
+   *
+   * Why reload instead of updating React state:
+   *   1. Eliminates the double-write (uploadBackup already persisted to storage).
+   *   2. Ensures schema migrations re-run for old backups (importAllData may
+   *      have reset schema version to 1 to trigger migration v2 on next startup).
+   *   3. Gives reminder sync a clean startup trigger with the restored data.
+   *   4. Prevents mixed state between old React state and new storage content.
+   *
+   * Device-local state that is intentionally NOT restored:
+   *   - API keys / email passwords (secure credential storage, device-local)
+   *   - Notification settings (device preference, not planner data)
+   *   - Zoom levels (UI state)
+   * Users restoring to a new device must re-enter credentials after restore.
+   */
+  const handleLoadData = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const data = await uploadBackup(file);
-      setAllWeeks(data.allWeeks);
-      setEmails(data.emails.length > 0 ? data.emails : emails);
-      if (data.goalItems && data.goalItems.length > 0) {
-        setGoalItems(data.goalItems);
-      }
+      const { warnings } = await uploadBackup(file);
+
+      // Build the restore confirmation message shown before reload
+      const warningText = warnings.length > 0
+        ? `\n\nNotes:\n• ${warnings.join('\n• ')}`
+        : '';
+
+      setAlertMsg(
+        `Backup restored successfully.${warningText}\n\n` +
+        'The app will reload now to load your data cleanly.\n\n' +
+        'Device-local settings (API keys, email passwords, notification preferences) ' +
+        'were not changed — they live outside the backup by design.',
+      );
+
+      // Reload after a short delay so the alert is visible
+      setTimeout(() => window.location.reload(), 2500);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      console.error("Restore failed:", message);
-      setAlertMsg("Restore failed: " + message);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[OmniPlanner] Restore failed:', message);
+      setAlertMsg('Restore failed: ' + message);
     }
   };
 
@@ -238,6 +309,23 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900 select-none overflow-hidden antialiased">
       {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
+
+      {/* Storage degraded warning banner — shown when IDB is unavailable or quota exceeded */}
+      {storageStatus.health === 'degraded' && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-amber-50 border-t-2 border-amber-300 px-4 py-2 flex items-center gap-3 text-sm">
+          <span className="text-amber-600 font-black shrink-0">⚠ Storage limited</span>
+          <span className="text-amber-800 font-medium flex-1 truncate">
+            {storageStatus.degradedReason ?? 'Storage backend is degraded.'}
+          </span>
+          <button
+            onClick={handleSaveData}
+            className="shrink-0 bg-amber-600 text-white font-bold px-3 py-1 rounded-lg hover:bg-amber-700 transition-colors text-xs"
+          >
+            Export backup
+          </button>
+        </div>
+      )}
+
       <Sidebar
         emailsCount={emails.filter(e => !e.read).length}
         activeTab={activeTab}
@@ -275,12 +363,14 @@ export default function App() {
                 goalItems={goalItems}
               />
             )}
-            {activeTab === Tab.Goals && <GoalsView goalItems={goalItems} setGoalItems={setGoalItems} allWeeks={allWeeks} />}
+            {activeTab === Tab.Goals && <GoalsView goalItems={goalItems} setGoalItems={setGoalItems} allWeeks={allWeeks} currentWeek={currentWeek} />}
             {activeTab === Tab.Data && (
               <DataView
                 handleSaveData={handleSaveData}
                 handleLoadData={handleLoadData}
                 onImportIcsEvents={importIcsEvents}
+                notificationSettings={notificationSettings}
+                onNotificationSettingsChange={handleNotificationSettingsChange}
               />
             )}
           </div>

@@ -87,8 +87,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setAct
           </button>
         </div>
         <div className="flex items-center gap-2 mt-2">
-           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-           <span className="text-xs text-slate-500 font-medium">Real-time Sync Active</span>
+           <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+           <span className="text-xs text-slate-500 font-medium">Local — no server sync</span>
         </div>
         <div className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">Enterprise Edition</div>
       </div>
