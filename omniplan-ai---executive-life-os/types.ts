@@ -1,6 +1,6 @@
 
 export interface Todo {
-  id: string | number;
+  id: string;
   text: string;
   done: boolean;
   /** Phase 2: optional link to a GoalItem.id. Picker UI in Phase 3. */
@@ -52,7 +52,7 @@ export interface HabitStreak {
 export type CalendarEventKind = 'meeting' | 'focus' | 'task_block' | 'routine';
 
 export interface CalendarEvent {
-  id: string | number;
+  id: string;
   title: string;
   description?: string;
   startHour: number;
@@ -64,7 +64,7 @@ export interface CalendarEvent {
   /** Link to a GoalItem.id — this block supports that goal. */
   parentGoalId?: string;
   /** Link to a specific Todo.id — this block is scheduled time for that task. */
-  linkedTodoId?: string | number;
+  linkedTodoId?: string;
 }
 
 export interface LifeGoals {

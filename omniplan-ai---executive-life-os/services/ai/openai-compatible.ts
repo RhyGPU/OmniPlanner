@@ -64,5 +64,9 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleConfig): 
       const cleanText = jsonMatch ? jsonMatch[0] : text;
       return JSON.parse(cleanText);
     },
+
+    async complete(systemPrompt: string, userContent: string): Promise<string> {
+      return await chatCompletion(config, systemPrompt, userContent);
+    },
   };
 }

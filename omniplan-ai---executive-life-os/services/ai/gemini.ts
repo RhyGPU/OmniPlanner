@@ -65,5 +65,11 @@ Example output format:
       const cleanText = jsonMatch ? jsonMatch[0] : text.replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(cleanText);
     },
+
+    async complete(systemPrompt: string, userContent: string): Promise<string> {
+      // Gemini uses a single prompt field; combine system + user with a separator
+      const prompt = `${systemPrompt}\n\n${userContent}`;
+      return await generateContent(apiKey, 'gemini-2.0-flash', prompt, 0.7);
+    },
   };
 }

@@ -108,7 +108,7 @@ export async function extractEventFromEmail(emailBody: string): Promise<{ title:
   try {
     const systemPrompt = "Extract a calendar event from the following email. Return ONLY valid JSON with these fields: {\"title\": string, \"date\": \"YYYY-MM-DD\", \"startHour\": number (decimal, e.g. 14.5 for 2:30 PM), \"duration\": number (in hours)}. If no event/meeting/appointment can be found, return the string \"null\". Do not include any other text.";
 
-    const result = await provider.predictDailyFocus([systemPrompt], [emailBody]);
+    const result = await provider.complete(systemPrompt, emailBody);
     const trimmed = result.trim();
     if (trimmed === 'null' || trimmed === '') return null;
 
