@@ -53,6 +53,24 @@ export const AISettings: React.FC = () => {
         </div>
       </div>
 
+      {/* Readiness status — derived from current draft form state */}
+      {(() => {
+        const draftReady = provider !== 'none' && (!!apiKey.trim() || provider === 'custom');
+        const dotClass = draftReady ? 'bg-emerald-400' : 'bg-slate-300';
+        const statusText =
+          provider === 'none'
+            ? 'AI features are disabled — select a provider below'
+            : draftReady
+            ? `${currentInfo.name} — ready${!saved ? ' (unsaved changes)' : ''}`
+            : `${currentInfo.name} selected — API key required`;
+        return (
+          <div className="flex items-center gap-2.5 mb-6 px-4 py-2.5 bg-slate-50 rounded-2xl border border-slate-100">
+            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dotClass}`}/>
+            <span className="text-xs font-bold text-slate-600">{statusText}</span>
+          </div>
+        );
+      })()}
+
       {/* Provider Selection */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
         {providerList.map((info) => (

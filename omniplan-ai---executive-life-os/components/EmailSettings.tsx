@@ -88,7 +88,8 @@ export const EmailSettings: React.FC = () => {
 
   const testConnection = async (account: EmailAccount) => {
     if (!platform.email.isAvailable()) {
-      setAlertMsg('Email testing requires the desktop app. Open OmniPlan as an Electron app to test connections.');
+      // Capability banner already explains why — just mark error without alert
+      setTestStatus(prev => ({ ...prev, [account.id]: 'error' }));
       return;
     }
     setTestStatus(prev => ({ ...prev, [account.id]: 'testing' }));
@@ -105,7 +106,7 @@ export const EmailSettings: React.FC = () => {
 
   const testNewConnection = async () => {
     if (!platform.email.isAvailable()) {
-      setAlertMsg('Connection testing requires the desktop app.');
+      setTestStatus(prev => ({ ...prev, _new: 'error' }));
       return;
     }
     setTestStatus(prev => ({ ...prev, _new: 'testing' }));
@@ -124,9 +125,25 @@ export const EmailSettings: React.FC = () => {
     }
   };
 
+  const isDesktop = platform.email.isAvailable();
+
   return (
     <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100">
       {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
+
+      {/* Desktop-only capability notice */}
+      {!isDesktop && (
+        <div className="flex items-start gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-6">
+          <Mail size={16} className="text-slate-400 mt-0.5 flex-shrink-0"/>
+          <div>
+            <p className="text-xs font-black text-slate-700 mb-0.5">Desktop feature</p>
+            <p className="text-xs font-medium text-slate-500 leading-relaxed">
+              IMAP email fetching and connection testing are only available in the desktop app.
+              You can save account details here, but inbox sync and testing will not work on web or mobile.
+            </p>
+          </div>
+        </div>
+      )}
 
       {keychainUnavailable && (
         <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-4">
@@ -246,7 +263,11 @@ export const EmailSettings: React.FC = () => {
       )}
 
       {accounts.length === 0 && !isAdding && (
-        <p className="text-sm text-slate-400 font-medium">No email accounts configured. Add one to fetch real emails in the Inbox.</p>
+        <p className="text-sm text-slate-400 font-medium">
+          {isDesktop
+            ? 'No accounts configured. Add one to fetch emails in the Inbox.'
+            : 'No accounts configured. Add one below — fetching requires the desktop app.'}
+        </p>
       )}
 
       {accounts.map(account => (

@@ -18,6 +18,8 @@ import { syncReminders } from './utils/reminderSync';
 import { formatDateKey } from './constants';
 import { storage, LOCAL_STORAGE_KEYS, getStorageStatus } from './services/storage';
 import type { StorageStatus } from './services/storage';
+import { getOnboardingDismissed, setOnboardingDismissed, hasPlannerData } from './services/storage/onboardingState';
+import { WelcomeCard } from './components/WelcomeCard';
 
 const INITIAL_EMAILS: Email[] = [
   { id: 1, provider: 'internal', sender: "OmniPlan Core", subject: "Executive System Ready", preview: "Your dashboard is ready...", body: "Welcome to OmniPlan!\n\nThis system is designed for high-performance scheduling. Your weekly planner, monthly overview, and life vision board are now active.\n\nUse the 'AI Optimize Week' feature to automatically generate focus themes based on your historical data and current tasks.\n\nBest,\nOmniPlan Team", time: "09:00 AM", read: false },
@@ -31,6 +33,21 @@ export default function App() {
 
   // Storage health — read once at mount (set synchronously during startup before render)
   const [storageStatus] = useState<StorageStatus>(() => getStorageStatus());
+
+  // First-run welcome card — shown once to users with no meaningful planner data.
+  // Reading storage directly here (same pattern as other lazy initialisers) so we
+  // don't need to wait for React state to be assigned.
+  const [showWelcome, setShowWelcome] = useState<boolean>(() => {
+    if (getOnboardingDismissed()) return false;
+    const savedGoals = storage.get<GoalItem[]>(LOCAL_STORAGE_KEYS.GOAL_ITEMS) ?? [];
+    const savedWeeks = storage.get<Record<string, WeekData>>(LOCAL_STORAGE_KEYS.ALL_WEEKS) ?? {};
+    return !hasPlannerData(savedWeeks, savedGoals);
+  });
+
+  const handleDismissWelcome = useCallback(() => {
+    setOnboardingDismissed();
+    setShowWelcome(false);
+  }, []);
 
   // Per-tab zoom levels
   const [zoomLevels, setZoomLevels] = useState<Record<string, number>>(
@@ -272,9 +289,7 @@ export default function App() {
    *   - Zoom levels (UI state)
    * Users restoring to a new device must re-enter credentials after restore.
    */
-  const handleLoadData = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleLoadData = async (file: File): Promise<void> => {
     try {
       const { warnings } = await uploadBackup(file);
 
@@ -339,6 +354,7 @@ export default function App() {
 
       <main className="flex-1 flex flex-col p-2 md:p-4 bg-slate-100 min-w-0 h-screen overflow-hidden">
         <div className="flex-1 bg-white rounded-3xl shadow-2xl shadow-slate-200/40 border border-slate-200 relative overflow-auto">
+          {showWelcome && <WelcomeCard onDismiss={handleDismissWelcome} />}
           <div style={zoomStyle}>
             {activeTab === Tab.Inbox && <EmailView emails={emails} setEmails={setEmails} allWeeks={allWeeks} onAddEvent={addEventFromEmail} />}
             {activeTab === Tab.Monthly && (
