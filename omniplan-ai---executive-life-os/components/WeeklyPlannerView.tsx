@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target, Link2, Clock, CalendarDays } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target, Link2, Clock, CalendarDays, Bell } from 'lucide-react';
 import { CalendarEventKind, WeekData, DailyPlan, Habit, HabitStreak, GoalItem, Todo } from '../types';
+import type { NotificationSettings } from '../types';
 import { getFocusGoalItems } from '../utils/goalManager';
 import {
   getWeekDays, formatDateKey, DAYS, MONTHS,
@@ -23,6 +24,12 @@ import {
   getHistoricalReviewSummary,
   HistoricalReviewSummary,
 } from '../utils/planningIntelligence';
+import {
+  isFocusReminderActive,
+  isHabitReminderActive,
+  getFocusReminderLabel,
+  getHabitReminderLabel,
+} from '../utils/reminderStatus';
 
 const GOAL_TIMEFRAME_LABELS: Record<string, string> = {
   ten_year: '10Y', five_year: '5Y', three_year: '3Y',
@@ -47,10 +54,13 @@ interface WeeklyPlannerProps {
   onAddHabit: (habit: Habit) => void;
   allWeeks: Record<string, WeekData>;
   goalItems: GoalItem[];
+  notificationSettings: NotificationSettings;
+  onNotificationSettingsChange: (settings: NotificationSettings) => void;
 }
 
 export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
-  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, onAddHabit, allWeeks, goalItems
+  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, onAddHabit, allWeeks, goalItems,
+  notificationSettings, onNotificationSettingsChange,
 }) => {
   const weekDates = useMemo(() => getWeekDays(currentDate), [currentDate]);
   const [eventEditor, setEventEditor] = useState<EventEditorState | null>(null);
@@ -361,6 +371,8 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
             setEventEditor(null);
           }}
           goalItems={goalItems}
+          notificationSettings={notificationSettings}
+          onNotificationSettingsChange={onNotificationSettingsChange}
         />
       )}
 
@@ -598,7 +610,22 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
 
                 <div className="flex flex-col border-b border-slate-200 p-5 bg-white/60">
                     <div className="flex items-center justify-between mb-5">
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Activity size={12} className="text-blue-500"/> Habitual Protocols</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Activity size={12} className="text-blue-500"/> Habitual Protocols</span>
+                          {/* Habit reminder badge — shown when reminder is active and there are habits */}
+                          {activeHabits.length > 0 && (() => {
+                            const label = getHabitReminderLabel(notificationSettings);
+                            return label ? (
+                              <span
+                                title={`Habit check-in reminder at ${label}`}
+                                className="flex items-center gap-0.5 text-[8px] font-bold text-violet-600 bg-violet-50 border border-violet-100 rounded-full px-1.5 py-0.5 leading-none"
+                              >
+                                <Bell size={8}/>
+                                {label}
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
                         <button onClick={addNewHabit} className="text-blue-600 hover:bg-blue-600 hover:text-white p-2 rounded-lg transition-all shadow-sm bg-white border border-blue-100"><Plus size={14}/></button>
                     </div>
                     <div className="space-y-6">
@@ -801,6 +828,13 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                                 </div>
                                               ) : null;
                                             })()}
+                                            {(evt.eventKind === 'focus' || evt.eventKind === 'task_block') &&
+                                              isFocusReminderActive(notificationSettings) && (
+                                              <div className="opacity-50 text-[8px] font-black mt-0.5 flex items-center gap-0.5">
+                                                <Bell size={7} className="flex-shrink-0"/>
+                                                <span>{getFocusReminderLabel(notificationSettings)}</span>
+                                              </div>
+                                            )}
                                         </div>
                                     );
                                 })}

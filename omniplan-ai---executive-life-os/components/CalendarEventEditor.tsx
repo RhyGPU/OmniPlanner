@@ -1,8 +1,11 @@
 
 import React from 'react';
-import { X, Target } from 'lucide-react';
+import { X, Target, Bell, BellOff } from 'lucide-react';
 import { CalendarEventKind, GoalItem } from '../types';
+import type { NotificationSettings } from '../types';
 import { formatHour, generateTimeSlots } from '../constants';
+import { isElectron } from '../services/platform';
+import { formatMinutesBefore } from '../utils/reminderStatus';
 
 export interface EventEditorState {
   dateKey: string;
@@ -24,6 +27,9 @@ interface CalendarEventEditorProps {
   onClose: () => void;
   onDelete: () => void;
   goalItems: GoalItem[];
+  /** Pass to show and edit the focus block reminder inline for focus/task_block events. */
+  notificationSettings?: NotificationSettings;
+  onNotificationSettingsChange?: (settings: NotificationSettings) => void;
 }
 
 const EVENT_KINDS: { id: CalendarEventKind; label: string; activeClass: string }[] = [
@@ -33,9 +39,43 @@ const EVENT_KINDS: { id: CalendarEventKind; label: string; activeClass: string }
   { id: 'routine',    label: 'Routine',  activeClass: 'bg-slate-100 text-slate-600' },
 ];
 
+const MINUTES_BEFORE_OPTIONS = [0, 5, 10, 15, 30];
+
 export const CalendarEventEditor: React.FC<CalendarEventEditorProps> = ({
   eventEditor, onChange, onSave, onClose, onDelete, goalItems,
+  notificationSettings, onNotificationSettingsChange,
 }) => {
+  const isFocusKind =
+    eventEditor.eventKind === 'focus' || eventEditor.eventKind === 'task_block';
+
+  // Reminder section visibility:
+  // - Only for focus/task_block events
+  // - Never on Electron (notifications not implemented there)
+  // - Only when settings are provided via props
+  const showReminderSection = isFocusKind && !isElectron() && !!notificationSettings;
+
+  const reminderEnabled =
+    notificationSettings?.enabled && notificationSettings?.focusBlockReminder.enabled;
+
+  const handleReminderToggle = () => {
+    if (!notificationSettings || !onNotificationSettingsChange) return;
+    onNotificationSettingsChange({
+      ...notificationSettings,
+      focusBlockReminder: {
+        ...notificationSettings.focusBlockReminder,
+        enabled: !notificationSettings.focusBlockReminder.enabled,
+      },
+    });
+  };
+
+  const handleMinutesBeforeChange = (minutesBefore: number) => {
+    if (!notificationSettings || !onNotificationSettingsChange) return;
+    onNotificationSettingsChange({
+      ...notificationSettings,
+      focusBlockReminder: { ...notificationSettings.focusBlockReminder, minutesBefore },
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white p-6 rounded-3xl shadow-2xl w-full max-w-sm border border-slate-200">
@@ -106,6 +146,68 @@ export const CalendarEventEditor: React.FC<CalendarEventEditorProps> = ({
             />
             Repeat Weekly
           </label>
+
+          {/* Focus block reminder — only for focus/task_block, not on Electron */}
+          {showReminderSection && (
+            <div className="border-t border-slate-100 pt-4">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Bell size={10}/>
+                Reminder
+              </label>
+              {!notificationSettings!.enabled ? (
+                <p className="text-[11px] text-slate-400 italic leading-relaxed">
+                  Notifications are off. Enable them in Settings → Data to set reminders.
+                </p>
+              ) : (
+                <div className="flex items-center gap-2.5">
+                  {/* Toggle */}
+                  <button
+                    type="button"
+                    onClick={handleReminderToggle}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 cursor-pointer ${
+                      notificationSettings!.focusBlockReminder.enabled
+                        ? 'bg-purple-600'
+                        : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                        notificationSettings!.focusBlockReminder.enabled
+                          ? 'translate-x-[18px]'
+                          : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+
+                  {notificationSettings!.focusBlockReminder.enabled ? (
+                    <select
+                      value={notificationSettings!.focusBlockReminder.minutesBefore}
+                      onChange={e => handleMinutesBeforeChange(Number(e.target.value))}
+                      className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-bold text-slate-700 cursor-pointer"
+                    >
+                      {MINUTES_BEFORE_OPTIONS.map(m => (
+                        <option key={m} value={m}>
+                          {m === 0 ? 'At start' : `${m} min before`}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                      <BellOff size={10} className="text-slate-300"/>
+                      off
+                    </span>
+                  )}
+
+                  {notificationSettings!.focusBlockReminder.enabled && (
+                    <span className="text-[10px] text-purple-600 font-bold ml-auto">
+                      {formatMinutesBefore(notificationSettings!.focusBlockReminder.minutesBefore)}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-3 pt-3">
              {!eventEditor.isNew && <button onClick={onDelete} className="flex-1 bg-red-50 text-red-600 font-black py-3.5 rounded-2xl text-xs uppercase tracking-widest">Delete</button>}
              <button onClick={onSave} className="flex-1 bg-blue-600 text-white font-black py-3.5 rounded-2xl text-xs uppercase tracking-widest shadow-xl">Confirm</button>
