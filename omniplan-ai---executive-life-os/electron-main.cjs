@@ -64,6 +64,43 @@ function deleteCredential(key) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Email diagnostics helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify an imapflow error into a stable email error code string.
+ * These string values must match EmailErrorCode in services/email/errors.ts.
+ * Never include credentials or message bodies in log output.
+ */
+function classifyImapError(error) {
+  const msg = (error.message || '').toLowerCase();
+  const code = error.code || '';
+
+  // Network / connectivity
+  if (code === 'ENOTFOUND' || msg.includes('getaddrinfo')) return 'EMAIL_DNS_FAILURE';
+  if (code === 'ECONNREFUSED') return 'EMAIL_CONNECTION_REFUSED';
+  if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'EHOSTUNREACH') return 'EMAIL_NETWORK_TIMEOUT';
+  if (msg.includes('certificate') || msg.includes('ssl') || msg.includes('tls handshake')) return 'EMAIL_TLS_HANDSHAKE_FAILED';
+
+  // Authentication — order matters: app password hint before generic auth fail
+  if (msg.includes('app-specific password') || msg.includes('application-specific')) return 'EMAIL_APP_PASSWORD_REQUIRED';
+  if (msg.includes('imap access disabled') || msg.includes('imap is disabled')) return 'EMAIL_IMAP_DISABLED';
+  if (msg.includes('authenticationfailed') || msg.includes('[authorizationfailed]') || msg.includes('auth failed')) return 'EMAIL_AUTH_FAILED';
+  if (msg.includes('locked') || msg.includes('too many login')) return 'EMAIL_AUTH_LOCKED';
+
+  // Protocol / mailbox
+  if (msg.includes('select') && msg.includes('fail')) return 'EMAIL_IMAP_SELECT_FAILED';
+  if (msg.includes('mailbox') && (msg.includes('not found') || msg.includes('does not exist'))) return 'EMAIL_MAILBOX_NOT_FOUND';
+
+  return 'EMAIL_IMAP_FETCH_FAILED';
+}
+
+/** Generate a short operation ID for correlating logs with user reports. */
+function makeOpId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}`;
+}
+
 // ─── Windows: relaunch with admin elevation if not already elevated ───────────
 // Must run before app.whenReady(). AI and email both need network access that
 // Windows Firewall grants to admin processes on first run.
@@ -261,6 +298,8 @@ ipcMain.handle('keychain:delete', (_event, key) => { deleteCredential(key); });
 // flow. Does NOT store credentials; caller is responsible for calling
 // keychain:set afterwards if the test passes.
 ipcMain.handle('email:test-connection', async (_event, { email, password, provider, imapHost, imapPort }) => {
+  const opId = makeOpId('email-test');
+  console.log(`[email:test ${opId}] provider=${provider} phase=start`);
   try {
     const { ImapFlow } = require('imapflow');
     const hostConfig = IMAP_HOSTS[provider] || { host: imapHost, port: imapPort || 993 };
@@ -269,20 +308,29 @@ ipcMain.handle('email:test-connection', async (_event, { email, password, provid
       auth: { user: email, pass: password }, logger: false,
     });
     await client.connect();
+    console.log(`[email:test ${opId}] phase=connected`);
     await client.logout();
-    return { success: true };
+    console.log(`[email:test ${opId}] phase=complete`);
+    return { success: true, operationId: opId };
   } catch (error) {
-    return { success: false, error: error.message };
+    const code = classifyImapError(error);
+    console.error(`[email:test ${opId}] phase=failed code=${code} error="${error.message}"`);
+    return { success: false, code, error: error.message, operationId: opId };
   }
 });
 
 // Email IMAP handlers
 ipcMain.handle('email:fetch', async (_event, account) => {
+  const opId = makeOpId('email-fetch');
+  console.log(`[email:fetch ${opId}] accountId=${account.id} provider=${account.provider} phase=start`);
   try {
     const { ImapFlow } = require('imapflow');
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
     const password = getCredential(`omni_email_pw_${account.id}`);
-    if (!password) return { success: false, error: 'No stored credentials for this account. Re-enter your password in Settings.' };
+    if (!password) {
+      console.error(`[email:fetch ${opId}] accountId=${account.id} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
+      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account. Re-enter your password in Settings.', operationId: opId };
+    }
 
     const client = new ImapFlow({
       host: hostConfig.host,
@@ -293,7 +341,9 @@ ipcMain.handle('email:fetch', async (_event, account) => {
     });
 
     await client.connect();
+    console.log(`[email:fetch ${opId}] accountId=${account.id} phase=connected`);
     const lock = await client.getMailboxLock('INBOX');
+    console.log(`[email:fetch ${opId}] accountId=${account.id} phase=mailbox-open`);
     const emails = [];
 
     try {
@@ -321,18 +371,26 @@ ipcMain.handle('email:fetch', async (_event, account) => {
     }
 
     await client.logout();
-    return { success: true, emails: emails.reverse() };
+    console.log(`[email:fetch ${opId}] accountId=${account.id} phase=complete count=${emails.length}`);
+    return { success: true, emails: emails.reverse(), operationId: opId };
   } catch (error) {
-    return { success: false, error: error.message };
+    const code = classifyImapError(error);
+    console.error(`[email:fetch ${opId}] accountId=${account.id} phase=failed code=${code} error="${error.message}"`);
+    return { success: false, code, error: error.message, operationId: opId };
   }
 });
 
 ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
+  const opId = makeOpId('email-body');
+  console.log(`[email:body ${opId}] accountId=${account.id} provider=${account.provider} phase=start`);
   try {
     const { ImapFlow } = require('imapflow');
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
     const password = getCredential(`omni_email_pw_${account.id}`);
-    if (!password) return { success: false, error: 'No stored credentials for this account.' };
+    if (!password) {
+      console.error(`[email:body ${opId}] accountId=${account.id} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
+      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account.', operationId: opId };
+    }
 
     const client = new ImapFlow({
       host: hostConfig.host,
@@ -343,6 +401,7 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
     });
 
     await client.connect();
+    console.log(`[email:body ${opId}] accountId=${account.id} phase=connected`);
     const lock = await client.getMailboxLock('INBOX');
 
     let body = '';
@@ -372,8 +431,11 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
     }
 
     await client.logout();
-    return { success: true, body };
+    console.log(`[email:body ${opId}] accountId=${account.id} phase=complete`);
+    return { success: true, body, operationId: opId };
   } catch (error) {
-    return { success: false, error: error.message };
+    const code = classifyImapError(error);
+    console.error(`[email:body ${opId}] accountId=${account.id} phase=failed code=${code} error="${error.message}"`);
+    return { success: false, code, error: error.message, operationId: opId };
   }
 });

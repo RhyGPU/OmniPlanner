@@ -2,9 +2,9 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, TestTube, Check, X, Mail, AlertTriangle } from 'lucide-react';
 import { EmailAccount } from '../types';
-import { AlertDialog } from './Dialog';
 import { platform } from '../services/platform';
 import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
+import { getEmailUserMessage } from '../services/email/errors';
 
 const PROVIDERS = [
   { id: 'gmail', label: 'Gmail', host: 'imap.gmail.com' },
@@ -34,7 +34,7 @@ export const EmailSettings: React.FC = () => {
   const [accounts, setAccounts] = useState<EmailAccount[]>(getEmailAccounts);
   const [isAdding, setIsAdding] = useState(false);
   const [testStatus, setTestStatus] = useState<Record<string, 'testing' | 'success' | 'error'>>({});
-  const [alertMsg, setAlertMsg] = useState<string | null>(null);
+  const [testErrors, setTestErrors] = useState<Record<string, string>>({});
   const [keychainUnavailable, setKeychainUnavailable] = useState(false);
 
   const [form, setForm] = useState({
@@ -88,28 +88,38 @@ export const EmailSettings: React.FC = () => {
 
   const testConnection = async (account: EmailAccount) => {
     if (!platform.email.isAvailable()) {
-      // Capability banner already explains why — just mark error without alert
+      // Capability banner already explains why — mark error inline
       setTestStatus(prev => ({ ...prev, [account.id]: 'error' }));
+      setTestErrors(prev => ({ ...prev, [account.id]: 'Email requires the desktop app.' }));
       return;
     }
     setTestStatus(prev => ({ ...prev, [account.id]: 'testing' }));
+    setTestErrors(prev => { const n = { ...prev }; delete n[account.id]; return n; });
     try {
       // fetchEmails triggers email:fetch in main — password is looked up from
       // safeStorage there. We do not pass the password from renderer here.
       const result = await platform.email.fetchEmails(account);
       setTestStatus(prev => ({ ...prev, [account.id]: result.success ? 'success' : 'error' }));
-      if (!result.success) setAlertMsg('Connection failed: ' + result.error);
+      if (!result.success) {
+        setTestErrors(prev => ({
+          ...prev,
+          [account.id]: getEmailUserMessage(result.code),
+        }));
+      }
     } catch {
       setTestStatus(prev => ({ ...prev, [account.id]: 'error' }));
+      setTestErrors(prev => ({ ...prev, [account.id]: 'Connection failed unexpectedly. Try again.' }));
     }
   };
 
   const testNewConnection = async () => {
     if (!platform.email.isAvailable()) {
       setTestStatus(prev => ({ ...prev, _new: 'error' }));
+      setTestErrors(prev => ({ ...prev, _new: 'Email requires the desktop app.' }));
       return;
     }
     setTestStatus(prev => ({ ...prev, _new: 'testing' }));
+    setTestErrors(prev => { const n = { ...prev }; delete n['_new']; return n; });
     try {
       const result = await platform.email.testConnection({
         email: form.email,
@@ -119,9 +129,12 @@ export const EmailSettings: React.FC = () => {
         imapPort: form.imapPort,
       });
       setTestStatus(prev => ({ ...prev, _new: result.success ? 'success' : 'error' }));
-      if (!result.success) setAlertMsg('Connection failed: ' + result.error);
+      if (!result.success) {
+        setTestErrors(prev => ({ ...prev, _new: getEmailUserMessage(result.code) }));
+      }
     } catch {
       setTestStatus(prev => ({ ...prev, _new: 'error' }));
+      setTestErrors(prev => ({ ...prev, _new: 'Connection failed unexpectedly. Try again.' }));
     }
   };
 
@@ -129,7 +142,6 @@ export const EmailSettings: React.FC = () => {
 
   return (
     <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100">
-      {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
 
       {/* Desktop-only capability notice */}
       {!isDesktop && (
@@ -259,6 +271,12 @@ export const EmailSettings: React.FC = () => {
                testStatus['_new'] === 'error' ? 'Failed' : 'Test Connection'}
             </button>
           </div>
+          {testErrors['_new'] && testStatus['_new'] === 'error' && (
+            <p className="text-[11px] font-medium text-red-600 flex items-center gap-1">
+              <AlertTriangle size={11} className="flex-shrink-0"/>
+              {testErrors['_new']}
+            </p>
+          )}
         </div>
       )}
 
@@ -271,33 +289,41 @@ export const EmailSettings: React.FC = () => {
       )}
 
       {accounts.map(account => (
-        <div key={account.id} className="flex items-center justify-between bg-white rounded-2xl p-4 mb-2 border border-slate-200">
-          <div>
-            <div className="text-sm font-bold text-slate-900">{account.name}</div>
-            <div className="text-xs text-slate-500">{account.email} &middot; {PROVIDERS.find(p => p.id === account.provider)?.label || 'Custom'}</div>
+        <div key={account.id} className="mb-2">
+          <div className="flex items-center justify-between bg-white rounded-2xl p-4 border border-slate-200">
+            <div>
+              <div className="text-sm font-bold text-slate-900">{account.name}</div>
+              <div className="text-xs text-slate-500">{account.email} &middot; {PROVIDERS.find(p => p.id === account.provider)?.label || 'Custom'}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => testConnection(account)}
+                className={`p-2 rounded-lg transition-all ${
+                  testStatus[account.id] === 'success' ? 'bg-emerald-100 text-emerald-600' :
+                  testStatus[account.id] === 'error' ? 'bg-red-100 text-red-600' :
+                  'bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-600'
+                }`}
+                title="Test Connection"
+              >
+                {testStatus[account.id] === 'success' ? <Check size={16}/> :
+                 testStatus[account.id] === 'testing' ? <TestTube size={16} className="animate-pulse"/> :
+                 <TestTube size={16}/>}
+              </button>
+              <button
+                onClick={() => removeAccount(account.id)}
+                className="p-2 rounded-lg bg-slate-100 text-slate-400 hover:bg-red-100 hover:text-red-600 transition-all"
+                title="Remove Account"
+              >
+                <Trash2 size={16}/>
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => testConnection(account)}
-              className={`p-2 rounded-lg transition-all ${
-                testStatus[account.id] === 'success' ? 'bg-emerald-100 text-emerald-600' :
-                testStatus[account.id] === 'error' ? 'bg-red-100 text-red-600' :
-                'bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-600'
-              }`}
-              title="Test Connection"
-            >
-              {testStatus[account.id] === 'success' ? <Check size={16}/> :
-               testStatus[account.id] === 'testing' ? <TestTube size={16} className="animate-pulse"/> :
-               <TestTube size={16}/>}
-            </button>
-            <button
-              onClick={() => removeAccount(account.id)}
-              className="p-2 rounded-lg bg-slate-100 text-slate-400 hover:bg-red-100 hover:text-red-600 transition-all"
-              title="Remove Account"
-            >
-              <Trash2 size={16}/>
-            </button>
-          </div>
+          {testErrors[account.id] && testStatus[account.id] === 'error' && (
+            <p className="text-[11px] font-medium text-red-600 flex items-center gap-1 px-1 pt-1">
+              <AlertTriangle size={11} className="flex-shrink-0"/>
+              {testErrors[account.id]}
+            </p>
+          )}
         </div>
       ))}
     </div>
