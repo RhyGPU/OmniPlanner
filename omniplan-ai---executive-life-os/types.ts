@@ -124,7 +124,20 @@ export interface EmailAccount {
    * In non-Electron (web dev fallback): stored here as plaintext.
    */
   password?: string;
-  provider: 'gmail' | 'outlook' | 'yahoo' | 'naver' | 'custom';
+  provider: 'gmail' | 'outlook' | 'yahoo' | 'naver' | 'daum' | 'custom';
+  /**
+   * Authentication method used by this account.
+   *
+   *  - 'imap_password': standard IMAP with an app password or credentials.
+   *    Credential stored in safeStorage under key `omni_email_pw_<id>`.
+   *  - 'oauth': OAuth 2.0 PKCE flow (desktop only). Access and refresh tokens
+   *    are stored in safeStorage under `omni_email_oauth_access_<id>` and
+   *    `omni_email_oauth_refresh_<id>`. Tokens are never returned to the renderer.
+   *
+   * Omitting this field (accounts created before Phase 21-B) is equivalent
+   * to 'imap_password'.
+   */
+  authMethod?: 'imap_password' | 'oauth';
   imapHost?: string;
   imapPort?: number;
   enabled: boolean;

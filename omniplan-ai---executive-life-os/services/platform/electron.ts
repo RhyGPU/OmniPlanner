@@ -63,6 +63,18 @@ export const electronEmail: EmailService = {
   async testConnection(creds: EmailTestCredentials) {
     return window.electronAPI!.testEmailConnection(creds);
   },
+
+  async startOAuthLogin(params) {
+    if (!window.electronAPI?.emailOAuthStart) {
+      return {
+        success: false,
+        code: 'EMAIL_OAUTH_PLATFORM_UNAVAILABLE',
+        error: 'Sign-in with a provider account requires the desktop app.',
+        phase: 'availability',
+      };
+    }
+    return window.electronAPI.emailOAuthStart(params);
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -53,10 +53,14 @@ export interface CredentialService {
 // Email (IMAP) service
 // ---------------------------------------------------------------------------
 
-/** Minimal account shape passed to the email IPC handlers. */
+/**
+ * Minimal account shape passed to the email IPC handlers.
+ * Includes authMethod so main-process handlers can select the right
+ * credential (app password vs OAuth access token).
+ */
 export type EmailAccountRef = Pick<
   EmailAccount,
-  'id' | 'email' | 'provider' | 'imapHost' | 'imapPort' | 'enabled'
+  'id' | 'email' | 'provider' | 'imapHost' | 'imapPort' | 'enabled' | 'authMethod'
 >;
 
 /** Credentials for a one-shot pre-save connection test. Passwords are NOT stored. */
@@ -136,6 +140,34 @@ export interface EmailService {
      * Stable values: 'credentials' | 'connect' | 'auth' | 'mailbox-open' |
      *   'fetch' | 'parse' | 'logout' | 'cleanup'
      */
+    phase?: string;
+  }>;
+
+  /**
+   * Initiate an OAuth 2.0 PKCE login flow for a supported provider.
+   *
+   * Desktop only — opens the system browser and waits (up to 5 minutes) for
+   * the protocol callback. On success, tokens are stored in safeStorage and
+   * are NEVER returned to the renderer. The returned `email` and `accountId`
+   * are safe to use for creating the EmailAccount record.
+   *
+   * Returns EMAIL_OAUTH_PLATFORM_UNAVAILABLE on non-desktop platforms.
+   * Returns EMAIL_OAUTH_PROVIDER_UNSUPPORTED if the provider has no OAuth
+   * client ID configured via environment variables.
+   */
+  startOAuthLogin(params: {
+    provider: 'gmail' | 'outlook';
+    accountId: string;
+  }): Promise<{
+    success: boolean;
+    /** User's email address discovered from the provider userinfo endpoint. */
+    email?: string;
+    /** The accountId passed in — use this as the EmailAccount.id. */
+    accountId?: string;
+    error?: string;
+    /** Stable OAuth error code from EMAIL_ERROR_CODES. */
+    code?: string;
+    operationId?: string;
     phase?: string;
   }>;
 }

@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // One-shot connection test before an account is saved — accepts credentials
   // inline. Does NOT store them; caller must call credentialSet afterwards.
   testEmailConnection: (creds) => ipcRenderer.invoke('email:test-connection', creds),
+  // OAuth 2.0 PKCE login flow. Opens the system browser and resolves when the
+  // omniplanner:// callback is received. Tokens stored in safeStorage; only
+  // email and accountId are returned to the renderer.
+  emailOAuthStart: (params) => ipcRenderer.invoke('email:oauth-start', params),
   openExternal: (url) => ipcRenderer.send('open-external', url),
   // Route HTTP requests through the main process to bypass CORS and Windows Firewall
   netFetch: (url, options) => ipcRenderer.invoke('net:fetch', url, options),

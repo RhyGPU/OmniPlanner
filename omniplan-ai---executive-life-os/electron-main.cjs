@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, net, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // ---------------------------------------------------------------------------
 // Credential store — backed by Electron safeStorage (OS keychain encryption).
@@ -119,6 +120,281 @@ function makeOpId(prefix) {
   return `${prefix}-${Date.now().toString(36)}`;
 }
 
+// ---------------------------------------------------------------------------
+// IMAP auth helper — supports both app-password and OAuth access-token paths
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the ImapFlow `auth` object for an account.
+ * Returns null if the required credential is missing from safeStorage.
+ *
+ * - authMethod 'oauth' (or undefined-treated-as-password with oauth key):
+ *     { user, accessToken } — ImapFlow uses XOAUTH2 automatically
+ * - authMethod 'imap_password' or absent:
+ *     { user, pass } — standard PLAIN/LOGIN authentication
+ *
+ * Never logs or returns raw credentials.
+ */
+function getImapAuth(account) {
+  if (account.authMethod === 'oauth') {
+    const accessToken = getCredential(`omni_email_oauth_access_${account.id}`);
+    if (!accessToken) return null;
+    return { user: account.email, accessToken };
+  }
+  const password = getCredential(`omni_email_pw_${account.id}`);
+  if (!password) return null;
+  return { user: account.email, pass: password };
+}
+
+// ---------------------------------------------------------------------------
+// OAuth 2.0 PKCE helpers — desktop-only
+//
+// Supported providers use XOAUTH2 for IMAP authentication.
+// Client IDs must be set via environment variables before packaging:
+//
+//   GOOGLE_OAUTH_CLIENT_ID    — from Google Cloud Console (Desktop app type)
+//   MICROSOFT_OAUTH_CLIENT_ID — from Azure App Registration (mobile/desktop)
+//
+// Client secrets are NOT required: PKCE eliminates the need for them in
+// public clients. Never add a client secret to this file.
+// ---------------------------------------------------------------------------
+
+const OAUTH_REDIRECT_URI = 'omniplanner://oauth/callback';
+const OAUTH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+const OAUTH_CLIENTS = {
+  google: {
+    clientId: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    userinfoUrl: 'https://www.googleapis.com/oauth2/v1/userinfo',
+    scopes: ['https://mail.google.com/'],
+    // Google requires access_type=offline to receive a refresh token
+    extraParams: { access_type: 'offline', prompt: 'consent' },
+  },
+  microsoft: {
+    clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID || '',
+    authUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+    tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+    userinfoUrl: 'https://graph.microsoft.com/v1.0/me',
+    scopes: ['https://outlook.office.com/IMAP.AccessAsUser.All', 'offline_access', 'User.Read'],
+    extraParams: {},
+  },
+};
+
+/** Generate a PKCE code_verifier + code_challenge (S256) pair. */
+function generatePKCE() {
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  return { verifier, challenge };
+}
+
+/**
+ * One active OAuth flow at a time.
+ * Stored as { resolve, verifier, opId, providerKey, accountId, timeoutHandle }.
+ */
+let _oauthPending = null;
+
+/**
+ * Dispatch an OAuth callback URL to the active pending flow.
+ * Called from app.on('open-url') on macOS/Linux and from the
+ * second-instance handler on Windows.
+ */
+function handleOAuthCallback(callbackUrl) {
+  if (!_oauthPending) {
+    console.warn('[email:oauth] Protocol callback received but no active OAuth flow — ignoring.');
+    return;
+  }
+
+  const { resolve, verifier, opId, providerKey, accountId, timeoutHandle } = _oauthPending;
+  _oauthPending = null;
+  clearTimeout(timeoutHandle);
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(callbackUrl);
+  } catch {
+    console.error(`[email:oauth ${opId}] Malformed callback URL`);
+    resolve({ success: false, code: 'EMAIL_OAUTH_CALLBACK_FAILED', operationId: opId, phase: 'callback' });
+    return;
+  }
+
+  const callbackError = parsedUrl.searchParams.get('error');
+  const authCode = parsedUrl.searchParams.get('code');
+
+  if (callbackError) {
+    const errCode = callbackError === 'access_denied' ? 'EMAIL_OAUTH_CANCELLED' : 'EMAIL_OAUTH_CALLBACK_FAILED';
+    console.error(`[email:oauth ${opId}] provider=${providerKey} callback-error=${callbackError} code=${errCode}`);
+    resolve({ success: false, code: errCode, operationId: opId, phase: 'callback' });
+    return;
+  }
+
+  if (!authCode) {
+    console.error(`[email:oauth ${opId}] provider=${providerKey} callback missing code`);
+    resolve({ success: false, code: 'EMAIL_OAUTH_CALLBACK_FAILED', operationId: opId, phase: 'callback' });
+    return;
+  }
+
+  exchangeCodeForTokens(providerKey, authCode, verifier, accountId, opId)
+    .then(result => resolve(result))
+    .catch(err => {
+      const errMsg = (err && err.message) ? err.message : String(err);
+      console.error(`[email:oauth ${opId}] exchangeCodeForTokens threw unexpectedly: ${errMsg}`);
+      resolve({ success: false, code: 'EMAIL_OAUTH_TOKEN_EXCHANGE_FAILED', error: 'Token exchange failed.', operationId: opId, phase: 'token-exchange' });
+    });
+}
+
+/** Simple HTTPS POST via Electron net module — avoids CORS and returns parsed JSON. */
+function makeNetPost(url, body, headers) {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ method: 'POST', url, redirect: 'follow' });
+    for (const [k, v] of Object.entries(headers || {})) req.setHeader(k, String(v));
+    const chunks = [];
+    req.on('response', res => {
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(Buffer.concat(chunks).toString('utf-8')) }); }
+        catch { resolve({ status: res.statusCode, data: null }); }
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/** Simple HTTPS GET via Electron net module — returns parsed JSON. */
+function makeNetGet(url, headers) {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ method: 'GET', url, redirect: 'follow' });
+    for (const [k, v] of Object.entries(headers || {})) req.setHeader(k, String(v));
+    const chunks = [];
+    req.on('response', res => {
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(Buffer.concat(chunks).toString('utf-8')) }); }
+        catch { resolve({ status: res.statusCode, data: null }); }
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/**
+ * Exchange an OAuth authorization code for access/refresh tokens,
+ * fetch the user's email address, and persist tokens in safeStorage.
+ * Returns a structured result — never throws.
+ */
+async function exchangeCodeForTokens(providerKey, authCode, verifier, accountId, opId) {
+  const client = OAUTH_CLIENTS[providerKey];
+  if (!client || !client.clientId) {
+    console.error(`[email:oauth ${opId}] No client ID configured for provider "${providerKey}"`);
+    return { success: false, code: 'EMAIL_OAUTH_PROVIDER_UNSUPPORTED', operationId: opId, phase: 'token-exchange' };
+  }
+
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: authCode,
+    redirect_uri: OAUTH_REDIRECT_URI,
+    client_id: client.clientId,
+    code_verifier: verifier,
+  }).toString();
+
+  let tokenResp;
+  try {
+    tokenResp = await makeNetPost(
+      client.tokenUrl,
+      body,
+      { 'Content-Type': 'application/x-www-form-urlencoded' },
+    );
+  } catch (err) {
+    const errMsg = (err && err.message) ? err.message : String(err);
+    console.error(`[email:oauth ${opId}] token POST failed: ${errMsg}`);
+    return { success: false, code: 'EMAIL_OAUTH_TOKEN_EXCHANGE_FAILED', error: 'Token request failed.', operationId: opId, phase: 'token-exchange' };
+  }
+
+  const tokenData = tokenResp && tokenResp.data;
+  if (!tokenData || !tokenData.access_token) {
+    const apiErr = (tokenData && tokenData.error) ? tokenData.error : `HTTP ${tokenResp && tokenResp.status}`;
+    console.error(`[email:oauth ${opId}] token response error: ${apiErr}`);
+    const errCode = (tokenData && tokenData.error === 'access_denied') ? 'EMAIL_OAUTH_SCOPE_DENIED' : 'EMAIL_OAUTH_TOKEN_EXCHANGE_FAILED';
+    return { success: false, code: errCode, error: `Provider error: ${apiErr}`, operationId: opId, phase: 'token-exchange' };
+  }
+
+  // Fetch user email from provider userinfo endpoint
+  let userEmail = '';
+  try {
+    const userinfoResp = await makeNetGet(client.userinfoUrl, { Authorization: `Bearer ${tokenData.access_token}` });
+    const info = userinfoResp && userinfoResp.data;
+    // Google returns { email }, Microsoft returns { mail } or { userPrincipalName }
+    userEmail = (info && (info.email || info.mail || info.userPrincipalName)) || '';
+  } catch (err) {
+    const errMsg = (err && err.message) ? err.message : String(err);
+    console.error(`[email:oauth ${opId}] userinfo request failed (non-fatal): ${errMsg}`);
+    // Non-fatal — token exchange succeeded; user can confirm/edit email in the UI
+  }
+
+  // Store access token in safeStorage
+  const stored = setCredential(`omni_email_oauth_access_${accountId}`, tokenData.access_token);
+  if (!stored) {
+    console.error(`[email:oauth ${opId}] safeStorage unavailable — cannot persist OAuth access token`);
+    return { success: false, code: 'EMAIL_OAUTH_STORAGE_FAILED', operationId: opId, phase: 'token-storage' };
+  }
+
+  // Refresh token is optional on first grant for some providers
+  if (tokenData.refresh_token) {
+    setCredential(`omni_email_oauth_refresh_${accountId}`, tokenData.refresh_token);
+  }
+
+  console.log(`[email:oauth ${opId}] provider=${providerKey} accountId=${accountId} phase=complete`);
+  return { success: true, email: userEmail, accountId, operationId: opId };
+}
+
+// ---------------------------------------------------------------------------
+// OAuth 2.0 protocol registration — must run before app.whenReady()
+//
+// Registers `omniplanner://` as this app's custom URL scheme so the OS
+// redirects the provider's callback URL back to this process.
+//
+// macOS / Linux: the callback fires via app.on('open-url', ...) below.
+// Windows:       the callback opens a second instance; the second-instance
+//                handler below forwards the URL here and then quits.
+// ---------------------------------------------------------------------------
+
+app.setAsDefaultProtocolClient('omniplanner');
+
+// macOS / Linux: receive the OAuth callback URL in this process
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (url.startsWith('omniplanner://oauth/callback')) {
+    handleOAuthCallback(url);
+  }
+});
+
+// Windows: a second app instance is launched with the callback URL as argv.
+// requestSingleInstanceLock makes the OS forward that URL to this instance
+// via the second-instance event instead of actually starting a new process.
+// The lock is intentionally Windows-only to avoid interfering with dev tooling
+// on macOS/Linux where open-url is the correct mechanism.
+if (process.platform === 'win32') {
+  const hasSingleInstanceLock = app.requestSingleInstanceLock();
+  if (!hasSingleInstanceLock) {
+    // This is the redundant second instance created by Windows for the callback.
+    app.quit();
+  }
+}
+
+app.on('second-instance', (_event, argv) => {
+  const oauthUrl = argv.find(a => typeof a === 'string' && a.startsWith('omniplanner://oauth/callback'));
+  if (oauthUrl) handleOAuthCallback(oauthUrl);
+  // Restore and focus the main window so the user sees the result
+  const [mainWin] = BrowserWindow.getAllWindows();
+  if (mainWin) { if (mainWin.isMinimized()) mainWin.restore(); mainWin.focus(); }
+});
+
 // ─── Windows: relaunch with admin elevation if not already elevated ───────────
 // Must run before app.whenReady(). AI and email both need network access that
 // Windows Firewall grants to admin processes on first run.
@@ -189,12 +465,14 @@ try {
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 
-// Pre-configured IMAP hosts for known providers
+// Pre-configured IMAP hosts for known providers.
+// Must stay in sync with PROVIDER_CAPABILITIES in services/email/providers.ts.
 const IMAP_HOSTS = {
-  gmail: { host: 'imap.gmail.com', port: 993 },
-  outlook: { host: 'outlook.office365.com', port: 993 },
-  yahoo: { host: 'imap.mail.yahoo.com', port: 993 },
-  naver: { host: 'imap.naver.com', port: 993 },
+  gmail:   { host: 'imap.gmail.com',          port: 993 },
+  outlook: { host: 'outlook.office365.com',    port: 993 },
+  yahoo:   { host: 'imap.mail.yahoo.com',      port: 993 },
+  naver:   { host: 'imap.naver.com',           port: 993 },
+  daum:    { host: 'imap.daum.net',            port: 993 },
 };
 
 function createWindow() {
@@ -312,6 +590,65 @@ ipcMain.handle('keychain:set', (_event, key, value) => setCredential(key, value)
 ipcMain.handle('keychain:get', (_event, key) => getCredential(key));
 ipcMain.handle('keychain:delete', (_event, key) => { deleteCredential(key); });
 
+// OAuth 2.0 PKCE login handler.
+// Opens the system browser, waits for the omniplanner:// callback (up to 5 min),
+// exchanges the code for tokens, stores them in safeStorage, and resolves with
+// { success, email, accountId }. Tokens are NEVER returned to the renderer.
+ipcMain.handle('email:oauth-start', async (_event, { provider, accountId }) => {
+  const opId = makeOpId('email-oauth');
+  console.log(`[email:oauth ${opId}] provider=${provider} accountId=${accountId} phase=start`);
+
+  // Map email provider to OAuth provider key
+  const providerKeyMap = { gmail: 'google', outlook: 'microsoft' };
+  const oauthProviderKey = providerKeyMap[provider] || null;
+  if (!oauthProviderKey) {
+    return { success: false, code: 'EMAIL_OAUTH_PROVIDER_UNSUPPORTED', error: `Provider "${provider}" does not support OAuth login.`, operationId: opId, phase: 'availability' };
+  }
+
+  const client = OAUTH_CLIENTS[oauthProviderKey];
+  if (!client.clientId) {
+    console.error(`[email:oauth ${opId}] GOOGLE_OAUTH_CLIENT_ID / MICROSOFT_OAUTH_CLIENT_ID not set`);
+    return { success: false, code: 'EMAIL_OAUTH_PROVIDER_UNSUPPORTED', error: 'OAuth is not configured for this provider. Use an app password instead.', operationId: opId, phase: 'availability' };
+  }
+
+  // Cancel any previous pending flow so the promise doesn't hang indefinitely
+  if (_oauthPending) {
+    console.warn(`[email:oauth ${opId}] Superseding previous pending OAuth flow ${_oauthPending.opId}`);
+    clearTimeout(_oauthPending.timeoutHandle);
+    _oauthPending.resolve({ success: false, code: 'EMAIL_OAUTH_CANCELLED', operationId: _oauthPending.opId, phase: 'superseded' });
+    _oauthPending = null;
+  }
+
+  return new Promise((resolve) => {
+    const { verifier, challenge } = generatePKCE();
+
+    const params = new URLSearchParams({
+      client_id: client.clientId,
+      response_type: 'code',
+      redirect_uri: OAUTH_REDIRECT_URI,
+      scope: client.scopes.join(' '),
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      ...client.extraParams,
+    });
+
+    const authUrl = `${client.authUrl}?${params.toString()}`;
+
+    const timeoutHandle = setTimeout(() => {
+      if (_oauthPending && _oauthPending.opId === opId) {
+        _oauthPending = null;
+        console.error(`[email:oauth ${opId}] provider=${oauthProviderKey} phase=timeout`);
+        resolve({ success: false, code: 'EMAIL_OAUTH_CANCELLED', error: 'Sign-in timed out. Try again.', operationId: opId, phase: 'callback' });
+      }
+    }, OAUTH_TIMEOUT_MS);
+
+    _oauthPending = { resolve, verifier, opId, providerKey: oauthProviderKey, accountId, timeoutHandle };
+
+    console.log(`[email:oauth ${opId}] provider=${oauthProviderKey} phase=browser-open`);
+    shell.openExternal(authUrl);
+  });
+});
+
 // One-shot connection test — accepts credentials inline for the pre-save test
 // flow. Does NOT store credentials; caller is responsible for calling
 // keychain:set afterwards if the test passes.
@@ -377,17 +714,18 @@ ipcMain.handle('email:fetch', async (_event, account) => {
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
 
     phase = 'credentials';
-    const password = getCredential(`omni_email_pw_${account.id}`);
-    if (!password) {
-      console.error(`[email:fetch ${opId}] accountId=${account.id} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
-      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account. Re-enter your password in Settings.', operationId: opId, phase };
+    const imapAuth = getImapAuth(account);
+    if (!imapAuth) {
+      const credCode = account.authMethod === 'oauth' ? 'EMAIL_CREDENTIAL_MISSING' : 'EMAIL_CREDENTIAL_MISSING';
+      console.error(`[email:fetch ${opId}] accountId=${account.id} authMethod=${account.authMethod || 'imap_password'} phase=failed code=${credCode}`);
+      return { success: false, code: credCode, error: 'No stored credentials for this account. Re-enter your password in Settings.', operationId: opId, phase };
     }
 
     client = new ImapFlow({
       host: hostConfig.host,
       port: hostConfig.port,
       secure: true,
-      auth: { user: account.email, pass: password },
+      auth: imapAuth,
       logger: false,
       connectionTimeout: 15000,
       greetingTimeout: 10000,
@@ -464,9 +802,9 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
 
     phase = 'credentials';
-    const password = getCredential(`omni_email_pw_${account.id}`);
-    if (!password) {
-      console.error(`[email:body ${opId}] accountId=${account.id} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
+    const imapAuth = getImapAuth(account);
+    if (!imapAuth) {
+      console.error(`[email:body ${opId}] accountId=${account.id} authMethod=${account.authMethod || 'imap_password'} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
       return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account.', operationId: opId, phase };
     }
 
@@ -474,7 +812,7 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
       host: hostConfig.host,
       port: hostConfig.port,
       secure: true,
-      auth: { user: account.email, pass: password },
+      auth: imapAuth,
       logger: false,
       connectionTimeout: 15000,
       greetingTimeout: 10000,

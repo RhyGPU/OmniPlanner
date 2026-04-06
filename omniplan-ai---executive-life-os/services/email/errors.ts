@@ -60,6 +60,17 @@ export const EMAIL_ERROR_CODES = {
   // Calendar handoff
   EMAIL_CALENDAR_CREATE_FAILED:       'EMAIL_CALENDAR_CREATE_FAILED',
   EMAIL_EVENT_PREVIEW_INVALID:        'EMAIL_EVENT_PREVIEW_INVALID',
+
+  // OAuth 2.0 login flow (Phase 21-B)
+  // These codes are stable — do not rename shipped values.
+  EMAIL_OAUTH_PLATFORM_UNAVAILABLE:   'EMAIL_OAUTH_PLATFORM_UNAVAILABLE',
+  EMAIL_OAUTH_PROVIDER_UNSUPPORTED:   'EMAIL_OAUTH_PROVIDER_UNSUPPORTED',
+  EMAIL_OAUTH_CANCELLED:              'EMAIL_OAUTH_CANCELLED',
+  EMAIL_OAUTH_CALLBACK_FAILED:        'EMAIL_OAUTH_CALLBACK_FAILED',
+  EMAIL_OAUTH_TOKEN_EXCHANGE_FAILED:  'EMAIL_OAUTH_TOKEN_EXCHANGE_FAILED',
+  EMAIL_OAUTH_SCOPE_DENIED:           'EMAIL_OAUTH_SCOPE_DENIED',
+  EMAIL_OAUTH_STORAGE_FAILED:         'EMAIL_OAUTH_STORAGE_FAILED',
+  EMAIL_OAUTH_IMAP_UNSUPPORTED:       'EMAIL_OAUTH_IMAP_UNSUPPORTED',
 } as const;
 
 export type EmailErrorCode = typeof EMAIL_ERROR_CODES[keyof typeof EMAIL_ERROR_CODES];
@@ -187,6 +198,24 @@ const EMAIL_USER_MESSAGES: Record<EmailErrorCode, string> = {
     'Could not add the event to the calendar. Try again.',
   EMAIL_EVENT_PREVIEW_INVALID:
     'The extracted event is missing required fields. Try again.',
+
+  // OAuth 2.0 login flow
+  EMAIL_OAUTH_PLATFORM_UNAVAILABLE:
+    'Sign-in with a provider account requires the desktop app.',
+  EMAIL_OAUTH_PROVIDER_UNSUPPORTED:
+    'This provider is not configured for sign-in. Use an app password instead.',
+  EMAIL_OAUTH_CANCELLED:
+    'Sign-in was cancelled. Try again when ready.',
+  EMAIL_OAUTH_CALLBACK_FAILED:
+    'Sign-in did not complete successfully. Close any extra browser tabs and try again.',
+  EMAIL_OAUTH_TOKEN_EXCHANGE_FAILED:
+    'Could not complete sign-in with the provider. Check your network and try again.',
+  EMAIL_OAUTH_SCOPE_DENIED:
+    'Mail access was not granted. Sign in again and allow mail access when prompted.',
+  EMAIL_OAUTH_STORAGE_FAILED:
+    'Sign-in succeeded but credentials could not be saved securely. Restart the app and try again.',
+  EMAIL_OAUTH_IMAP_UNSUPPORTED:
+    'This provider account does not support IMAP access via sign-in. Use an app password instead.',
 };
 
 // ---------------------------------------------------------------------------

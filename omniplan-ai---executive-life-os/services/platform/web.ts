@@ -65,6 +65,15 @@ export const webEmail: EmailService = {
   async testConnection(_creds: EmailTestCredentials) {
     return { success: false, error: 'Email testing requires the desktop app.' };
   },
+
+  async startOAuthLogin(_params) {
+    return {
+      success: false,
+      code: 'EMAIL_OAUTH_PLATFORM_UNAVAILABLE',
+      error: 'Sign-in with a provider account requires the desktop app.',
+      phase: 'availability',
+    };
+  },
 };
 
 // ---------------------------------------------------------------------------

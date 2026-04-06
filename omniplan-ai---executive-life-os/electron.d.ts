@@ -18,16 +18,17 @@ declare global {
       /** Quit the Electron application. */
       quitApp(): void;
 
-      /** Fetch email headers from an IMAP account. Passwords are looked up in
-       *  main-process safeStorage — never passed from renderer. */
+      /** Fetch email headers from an IMAP account. Credentials are looked up in
+       *  main-process safeStorage using account.id — never passed from renderer. */
       fetchEmails(account: {
         id: string;
         email: string;
         provider: string;
+        authMethod?: 'imap_password' | 'oauth';
         imapHost?: string;
         imapPort?: number;
         enabled: boolean;
-      }): Promise<{ success: boolean; emails?: import('./types').Email[]; error?: string }>;
+      }): Promise<{ success: boolean; emails?: import('./types').Email[]; error?: string; code?: string; operationId?: string; phase?: string }>;
 
       /** Fetch the full body of a single email by UID. */
       fetchEmailBody(
@@ -35,12 +36,13 @@ declare global {
           id: string;
           email: string;
           provider: string;
+          authMethod?: 'imap_password' | 'oauth';
           imapHost?: string;
           imapPort?: number;
           enabled: boolean;
         },
         uid: string,
-      ): Promise<{ success: boolean; body?: string; error?: string }>;
+      ): Promise<{ success: boolean; body?: string; error?: string; code?: string; operationId?: string; phase?: string }>;
 
       /** One-shot IMAP test before an account is saved. Credentials are passed
        *  inline and are NOT stored by this call. */
@@ -50,7 +52,17 @@ declare global {
         provider: string;
         imapHost?: string;
         imapPort?: number;
-      }): Promise<{ success: boolean; error?: string }>;
+      }): Promise<{ success: boolean; error?: string; code?: string; operationId?: string; phase?: string }>;
+
+      /**
+       * Initiate an OAuth 2.0 PKCE login for a supported provider.
+       * Opens the system browser; resolves when the OAuth callback is received
+       * (up to 5 minutes). Tokens are stored in safeStorage and are NOT returned.
+       */
+      emailOAuthStart(params: {
+        provider: 'gmail' | 'outlook';
+        accountId: string;
+      }): Promise<{ success: boolean; email?: string; accountId?: string; error?: string; code?: string; operationId?: string; phase?: string }>;
 
       /** Open a URL in the system default browser. */
       openExternal(url: string): void;
