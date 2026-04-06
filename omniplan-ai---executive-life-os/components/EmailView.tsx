@@ -9,6 +9,7 @@ import { getEmailAccounts } from './EmailSettings';
 import { extractEventFromEmail } from '../services/ai';
 import { platform } from '../services/platform';
 import { getAIReadiness } from '../services/ai/readiness';
+import { EmailError, getEmailUserMessage } from '../services/email/errors';
 
 interface EmailViewProps {
   emails: Email[];
@@ -40,6 +41,7 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
   const [fetching, setFetching] = useState(false);
   const [fetchWarnings, setFetchWarnings] = useState<string[]>([]);
   const [extractState, setExtractState] = useState<ExtractState>({ phase: 'idle' });
+  const [bodyLoadError, setBodyLoadError] = useState<string | null>(null);
 
   const selectedEmail = emails.find(e => e.id === selectedId);
   const emailIsDesktop = platform.email.isAvailable();
@@ -92,7 +94,9 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
             } as any);
           }
         } else {
-          warnings.push(`${account.email}: ${result.error ?? 'fetch failed'}`);
+          warnings.push(
+            `${account.email}: ${getEmailUserMessage(result.code) || result.error || 'fetch failed'}`,
+          );
         }
       }
 
@@ -108,9 +112,12 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
     if (!emailIsDesktop) return;
     const account = storedAccounts.find(a => a.id === email._accountId);
     if (!account) return;
+    setBodyLoadError(null);
     const result = await platform.email.fetchEmailBody(account, email._uid);
     if (result.success) {
       setEmails(prev => prev.map(e => e.id === email.id ? { ...e, body: result.body } : e));
+    } else {
+      setBodyLoadError(getEmailUserMessage(result.code));
     }
   };
 
@@ -127,7 +134,12 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
         setTimeout(() => setExtractState({ phase: 'idle' }), 4000);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Extraction failed. Check AI settings.';
+      const code = err instanceof EmailError ? err.code : undefined;
+      const message = code
+        ? getEmailUserMessage(code)
+        : err instanceof Error
+        ? err.message
+        : 'Extraction failed. Check AI settings.';
       setExtractState({ phase: 'error', message });
       setTimeout(() => setExtractState({ phase: 'idle' }), 5000);
     }
@@ -153,6 +165,7 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
   const handleCancelExtract = () => setExtractState({ phase: 'idle' });
 
   const handleSelectEmail = (email: Email) => {
+    setBodyLoadError(null);
     markRead(email.id);
     loadEmailBody(email);
   };
@@ -397,10 +410,20 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
                 </div>
               )}
 
+              {/* Body load error */}
+              {bodyLoadError && (
+                <div className="mb-4 px-4 py-2.5 bg-amber-50 rounded-xl border border-amber-100 flex items-start gap-2">
+                  <AlertTriangle size={13} className="text-amber-600 mt-0.5 flex-shrink-0"/>
+                  <p className="text-[11px] font-bold text-amber-700">{bodyLoadError}</p>
+                </div>
+              )}
+
               {/* Email body */}
               <div className="text-slate-700 leading-relaxed whitespace-pre-line text-lg font-medium">
                 {selectedEmail.body || (
-                  <span className="text-slate-400 italic text-base">Loading message…</span>
+                  <span className="text-slate-400 italic text-base">
+                    {bodyLoadError ? 'Message could not be loaded.' : 'Loading message…'}
+                  </span>
                 )}
               </div>
             </div>

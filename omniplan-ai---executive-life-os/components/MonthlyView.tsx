@@ -66,7 +66,7 @@ export const MonthlyView: React.FC<MonthlyViewProps> = ({
   const handleAddEvent = () => {
     if (!selectedDay || !newEvent.title.trim()) return;
     const event: CalendarEvent = {
-      id: Date.now(),
+      id: String(Date.now()),
       title: newEvent.title.trim(),
       startHour: parseFloat(newEvent.startHour),
       duration: parseFloat(newEvent.duration),

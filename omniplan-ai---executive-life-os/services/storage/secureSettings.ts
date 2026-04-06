@@ -72,6 +72,13 @@ const AI_DEFAULTS: AISettings = {
 // Populated by initAICredentials() on app startup.
 let _apiKeyCache: string | null = null;
 
+/**
+ * Set to true when initAICredentials() encounters a storage error.
+ * Distinguishes "no key configured" (false + null cache) from "storage unavailable"
+ * (true + null cache). Callers can surface this as "AI features temporarily unavailable".
+ */
+let _credentialLoadFailed = false;
+
 const KEYCHAIN_AI_KEY = 'omni_api_key';
 
 // ---------------------------------------------------------------------------
@@ -88,9 +95,29 @@ export async function initAICredentials(): Promise<void> {
   try {
     const key = await platform.credentials.get(KEYCHAIN_AI_KEY);
     _apiKeyCache = key ?? null;
-  } catch {
+    _credentialLoadFailed = false;
+  } catch (e) {
+    console.error(
+      '[OmniPlanner] initAICredentials: failed to load API key from secure storage. ' +
+      'AI features will be unavailable this session. Check keychain/keystore access.',
+      e,
+    );
     _apiKeyCache = null;
+    _credentialLoadFailed = true;
   }
+}
+
+/**
+ * Returns true when initAICredentials() encountered a storage error this session.
+ *
+ * Use this to surface "AI features temporarily unavailable — secure storage error"
+ * rather than treating the failure as "no API key configured".
+ *
+ * False means either the key was loaded successfully or credentials are not
+ * used on this platform (web fallback path).
+ */
+export function getCredentialLoadFailed(): boolean {
+  return _credentialLoadFailed;
 }
 
 /**

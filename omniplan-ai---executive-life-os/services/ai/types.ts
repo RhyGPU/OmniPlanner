@@ -19,6 +19,13 @@ export interface AIProvider {
 
   /** Generate a full schedule from a todo list */
   generateSchedule(todoText: string): Promise<ScheduleItem[]>;
+
+  /**
+   * Generic single-turn completion.
+   * Sends a system prompt and a user message; returns the model's reply.
+   * Prefer this over predictDailyFocus for any non-focus-prediction use case.
+   */
+  complete(systemPrompt: string, userContent: string): Promise<string>;
 }
 
 export interface ScheduleItem {

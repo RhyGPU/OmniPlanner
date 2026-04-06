@@ -7,4 +7,4 @@
  *
  * Do not add new logic here — use secureSettings.ts directly.
  */
-export { getAISettings, saveAISettings, initAICredentials, type AISettings } from './storage/secureSettings';
+export { getAISettings, saveAISettings, initAICredentials, getCredentialLoadFailed, type AISettings } from './storage/secureSettings';

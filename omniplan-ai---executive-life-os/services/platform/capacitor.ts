@@ -92,8 +92,18 @@ export const capacitorCredentials: CredentialService = {
     try {
       const result = await SecureStoragePlugin.get({ key });
       return result.value ?? null;
-    } catch {
-      // SecureStoragePlugin throws when key does not exist — treat as absent
+    } catch (e) {
+      // SecureStoragePlugin throws for missing keys (expected) and for real IO
+      // errors (unexpected). Suppress the expected missing-key case; log the rest.
+      const msg = e instanceof Error ? e.message : String(e);
+      const isMissingKey =
+        msg.includes('not exist') ||
+        msg.includes('not found') ||
+        msg.includes('No value') ||
+        msg.includes('key does not');
+      if (!isMissingKey) {
+        console.error('[OmniPlanner] SecureStorage.get failed (storage may be unavailable):', key, e);
+      }
       return null;
     }
   },

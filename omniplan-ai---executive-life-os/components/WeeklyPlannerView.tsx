@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target, Link2, Clock, CalendarDays } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Plus, Zap, Check, Trash2, Activity, Layout, List, Flame, Target, Link2, Clock, CalendarDays, Bell } from 'lucide-react';
 import { CalendarEventKind, WeekData, DailyPlan, Habit, HabitStreak, GoalItem, Todo } from '../types';
+import type { NotificationSettings } from '../types';
 import { getFocusGoalItems } from '../utils/goalManager';
 import {
   getWeekDays, formatDateKey, DAYS, MONTHS,
@@ -11,6 +12,7 @@ import { calculateCrossWeekStreak, getWeekStorageKey } from '../utils/weekManage
 import { getMilestoneForStreak, getFlameColorClass } from '../utils/habitMilestones';
 import { CheckableList } from './CheckableList';
 import { ConfirmDialog } from './Dialog';
+import { CalendarEventEditor, EventEditorState } from './CalendarEventEditor';
 import { predictMainEvent } from '../services/ai';
 import { getAIReadiness } from '../services/ai/readiness';
 import {
@@ -22,6 +24,12 @@ import {
   getHistoricalReviewSummary,
   HistoricalReviewSummary,
 } from '../utils/planningIntelligence';
+import {
+  isFocusReminderActive,
+  isHabitReminderActive,
+  getFocusReminderLabel,
+  getHabitReminderLabel,
+} from '../utils/reminderStatus';
 
 const GOAL_TIMEFRAME_LABELS: Record<string, string> = {
   ten_year: '10Y', five_year: '5Y', three_year: '3Y',
@@ -36,13 +44,6 @@ const EVENT_KIND_COLORS: Record<CalendarEventKind, string> = {
 };
 const DEFAULT_EVENT_COLOR = 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm';
 
-const EVENT_KINDS: { id: CalendarEventKind; label: string; activeClass: string }[] = [
-  { id: 'meeting',    label: 'Meeting',  activeClass: 'bg-blue-100 text-blue-700' },
-  { id: 'focus',      label: 'Focus',    activeClass: 'bg-purple-100 text-purple-700' },
-  { id: 'task_block', label: 'Task',     activeClass: 'bg-indigo-100 text-indigo-700' },
-  { id: 'routine',    label: 'Routine',  activeClass: 'bg-slate-100 text-slate-600' },
-];
-
 interface WeeklyPlannerProps {
   currentDate: Date;
   setCurrentDate: (date: Date) => void;
@@ -53,13 +54,16 @@ interface WeeklyPlannerProps {
   onAddHabit: (habit: Habit) => void;
   allWeeks: Record<string, WeekData>;
   goalItems: GoalItem[];
+  notificationSettings: NotificationSettings;
+  onNotificationSettingsChange: (settings: NotificationSettings) => void;
 }
 
 export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
-  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, onAddHabit, allWeeks, goalItems
+  currentDate, setCurrentDate, currentWeek, updateCurrentWeek, setAiLoading, onDeleteHabit, onAddHabit, allWeeks, goalItems,
+  notificationSettings, onNotificationSettingsChange,
 }) => {
   const weekDates = useMemo(() => getWeekDays(currentDate), [currentDate]);
-  const [eventEditor, setEventEditor] = useState<any>(null);
+  const [eventEditor, setEventEditor] = useState<EventEditorState | null>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [activeDayIdx, setActiveDayIdx] = useState(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1);
   const [mobileTab, setMobileTab] = useState<'plan' | 'strategy'>('plan');
@@ -212,7 +216,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   /** Open the event editor pre-filled from an unscheduled linked todo suggestion. */
   const openFocusSuggestion = useCallback((todo: Todo) => {
     const today = formatDateKey(new Date());
-    const dayEntries = Object.entries(currentWeek.dailyPlans).sort(([a], [b]) => a.localeCompare(b));
+    const dayEntries = (Object.entries(currentWeek.dailyPlans) as Array<[string, DailyPlan]>).sort(([a], [b]) => a.localeCompare(b));
     // Prefer today/future days with fewest events
     const target =
       dayEntries.find(([dk, dp]) => dk >= today && dp.events.length < 5) ??
@@ -313,7 +317,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
     const existingEvent = !isNew ? dayPlan.events.find(e => e.id === id) : undefined;
     const resolvedKind: CalendarEventKind = eventKind ?? existingEvent?.eventKind ?? 'focus';
     const baseEvent = {
-      id: isNew ? Date.now() : id,
+      id: isNew ? String(Date.now()) : id,
       title: title || "New Session",
       startHour: parseFloat(startHour),
       duration: parseFloat(duration),
@@ -354,87 +358,22 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
 
       {/* Event Editor Modal */}
       {eventEditor && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white p-6 rounded-3xl shadow-2xl w-full max-w-sm border border-slate-200">
-            <div className="flex justify-between items-center mb-5">
-               <h3 className="text-xl font-black text-slate-900">{eventEditor.isNew ? 'New Block' : 'Edit Block'}</h3>
-               <button onClick={() => setEventEditor(null)} className="text-slate-400 hover:text-slate-600 p-2 -mr-1"><X size={24}/></button>
-            </div>
-            <div className="space-y-5">
-              {/* Block type */}
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Block Type</label>
-                <div className="flex gap-1.5">
-                  {EVENT_KINDS.map(k => (
-                    <button
-                      key={k.id}
-                      type="button"
-                      onClick={() => setEventEditor({ ...eventEditor, eventKind: k.id })}
-                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
-                        (eventEditor.eventKind ?? 'focus') === k.id
-                          ? k.activeClass
-                          : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
-                      }`}
-                    >
-                      {k.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Description</label>
-                <input autoFocus className="w-full border border-slate-200 rounded-xl p-3.5 text-sm font-bold bg-slate-50" value={eventEditor.title} onChange={e => setEventEditor({...eventEditor, title: e.target.value})} placeholder="Title..." />
-              </div>
-              {/* Linked goal context — shown when pre-filled from a suggestion */}
-              {eventEditor.parentGoalId && (() => {
-                const g = goalItems.find(gi => gi.id === eventEditor.parentGoalId);
-                return g ? (
-                  <div className="flex items-center gap-2 bg-purple-50 border border-purple-100 rounded-xl px-3 py-2">
-                    <Target size={12} className="text-purple-500 flex-shrink-0"/>
-                    <span className="text-[11px] font-bold text-purple-700 truncate">{g.text || '(untitled goal)'}</span>
-                    <button
-                      type="button"
-                      onClick={() => setEventEditor({ ...eventEditor, parentGoalId: undefined, linkedTodoId: undefined })}
-                      className="ml-auto text-purple-400 hover:text-purple-600 flex-shrink-0"
-                    >
-                      <X size={12}/>
-                    </button>
-                  </div>
-                ) : null;
-              })()}
-              <div className="grid grid-cols-1 gap-4">
-                 <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Start</label>
-                    <select className="w-full border border-slate-200 rounded-xl p-3 text-sm bg-slate-50 font-bold" value={eventEditor.startHour} onChange={e => setEventEditor({...eventEditor, startHour: e.target.value})}>
-                        {generateTimeSlots().map(h => <option key={h} value={h}>{formatHour(h)}</option>)}
-                    </select>
-                 </div>
-                 <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Duration</label>
-                    <input type="number" step="0.5" className="w-full border border-slate-200 rounded-xl p-3 text-sm bg-slate-50 font-bold" value={eventEditor.duration} onChange={e => setEventEditor({...eventEditor, duration: e.target.value})} />
-                 </div>
-              </div>
-              <label className="flex items-center gap-2 text-xs font-black text-slate-600 uppercase tracking-widest">
-                <input
-                  type="checkbox"
-                  checked={!!eventEditor.repeating}
-                  onChange={e => setEventEditor({ ...eventEditor, repeating: e.target.checked })}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                Repeat Weekly
-              </label>
-              <div className="flex gap-3 pt-3">
-                 {!eventEditor.isNew && <button onClick={() => { 
-                   const updatedDailyPlans = { ...currentWeek.dailyPlans };
-                   updatedDailyPlans[eventEditor.dateKey].events = updatedDailyPlans[eventEditor.dateKey].events.filter(e => e.id !== eventEditor.id);
-                   updateCurrentWeek({ ...currentWeek, dailyPlans: updatedDailyPlans });
-                   setEventEditor(null); 
-                 }} className="flex-1 bg-red-50 text-red-600 font-black py-3.5 rounded-2xl text-xs uppercase tracking-widest">Delete</button>}
-                 <button onClick={saveEvent} className="flex-1 bg-blue-600 text-white font-black py-3.5 rounded-2xl text-xs uppercase tracking-widest shadow-xl">Confirm</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CalendarEventEditor
+          eventEditor={eventEditor}
+          onChange={setEventEditor}
+          onSave={saveEvent}
+          onClose={() => setEventEditor(null)}
+          onDelete={() => {
+            const updatedDailyPlans = { ...currentWeek.dailyPlans };
+            updatedDailyPlans[eventEditor.dateKey].events =
+              updatedDailyPlans[eventEditor.dateKey].events.filter(e => e.id !== eventEditor.id);
+            updateCurrentWeek({ ...currentWeek, dailyPlans: updatedDailyPlans });
+            setEventEditor(null);
+          }}
+          goalItems={goalItems}
+          notificationSettings={notificationSettings}
+          onNotificationSettingsChange={onNotificationSettingsChange}
+        />
       )}
 
       {/* Header / Week Navigation */}
@@ -671,7 +610,22 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
 
                 <div className="flex flex-col border-b border-slate-200 p-5 bg-white/60">
                     <div className="flex items-center justify-between mb-5">
-                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Activity size={12} className="text-blue-500"/> Habitual Protocols</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><Activity size={12} className="text-blue-500"/> Habitual Protocols</span>
+                          {/* Habit reminder badge — shown when reminder is active and there are habits */}
+                          {activeHabits.length > 0 && (() => {
+                            const label = getHabitReminderLabel(notificationSettings);
+                            return label ? (
+                              <span
+                                title={`Habit check-in reminder at ${label}`}
+                                className="flex items-center gap-0.5 text-[8px] font-bold text-violet-600 bg-violet-50 border border-violet-100 rounded-full px-1.5 py-0.5 leading-none"
+                              >
+                                <Bell size={8}/>
+                                {label}
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
                         <button onClick={addNewHabit} className="text-blue-600 hover:bg-blue-600 hover:text-white p-2 rounded-lg transition-all shadow-sm bg-white border border-blue-100"><Plus size={14}/></button>
                     </div>
                     <div className="space-y-6">
@@ -874,6 +828,13 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                                 </div>
                                               ) : null;
                                             })()}
+                                            {(evt.eventKind === 'focus' || evt.eventKind === 'task_block') &&
+                                              isFocusReminderActive(notificationSettings) && (
+                                              <div className="opacity-50 text-[8px] font-black mt-0.5 flex items-center gap-0.5">
+                                                <Bell size={7} className="flex-shrink-0"/>
+                                                <span>{getFocusReminderLabel(notificationSettings)}</span>
+                                              </div>
+                                            )}
                                         </div>
                                     );
                                 })}

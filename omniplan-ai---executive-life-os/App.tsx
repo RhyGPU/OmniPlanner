@@ -377,6 +377,8 @@ export default function App() {
                 onAddHabit={addHabitGlobally}
                 allWeeks={allWeeks}
                 goalItems={goalItems}
+                notificationSettings={notificationSettings}
+                onNotificationSettingsChange={handleNotificationSettingsChange}
               />
             )}
             {activeTab === Tab.Goals && <GoalsView goalItems={goalItems} setGoalItems={setGoalItems} allWeeks={allWeeks} currentWeek={currentWeek} />}

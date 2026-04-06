@@ -15,20 +15,22 @@ interface CheckableListProps {
   emptyMessage?: string;
 }
 
-const AutoSizeTextarea = ({ 
-  value, 
-  onChange, 
-  onKeyDown, 
-  placeholder, 
-  className, 
-  disabled 
-}: { 
-  value: string, 
-  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void, 
+const AutoSizeTextarea = ({
+  value,
+  onChange,
+  onKeyDown,
+  placeholder,
+  className,
+  disabled,
+  style,
+}: {
+  value: string,
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void,
   onKeyDown: (e: React.KeyboardEvent) => void,
   placeholder: string,
   className: string,
-  disabled: boolean
+  disabled: boolean,
+  style?: React.CSSProperties,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -57,7 +59,7 @@ const AutoSizeTextarea = ({
       placeholder={placeholder}
       disabled={disabled}
       className={className}
-      style={{ overflow: 'hidden' }}
+      style={{ overflow: 'hidden', ...style }}
     />
   );
 };

@@ -17,7 +17,7 @@ export interface OmniPlanBackupData {
   goalItems?: GoalItem[];
 }
 
-const BACKUP_VERSION = '3.0';
+const BACKUP_VERSION = '3.1';
 
 /**
  * Export all data to a single consolidated backup object.
@@ -56,7 +56,7 @@ const migrateWeeklyGoalsInBackup = (allWeeks: Record<string, WeekData>): Record<
     for (const field of ['business', 'personal'] as const) {
       const arr = week.goals[field];
       if (arr && arr.length > 0 && typeof (arr as unknown[])[0] === 'string') {
-        (week.goals as Record<string, unknown>)[field] = (arr as unknown as string[]).map(
+        (week.goals as unknown as Record<string, unknown>)[field] = (arr as unknown as string[]).map(
           (text, i) => ({ id: `${field[0]}g-migrated-${i}`, text, done: false }),
         );
       }
@@ -106,9 +106,10 @@ export const importAllData = (backup: OmniPlanBackupData): void => {
 
   if (backup.goalItems && backup.goalItems.length > 0) {
     storage.set(LOCAL_STORAGE_KEYS.GOAL_ITEMS, backup.goalItems);
-    storage.set(LOCAL_STORAGE_KEYS.SCHEMA_VERSION, 2);
+    // Modern backup: IDs are already strings; run from v3 so migrations v2+v3 don't re-run
+    storage.set(LOCAL_STORAGE_KEYS.SCHEMA_VERSION, 3);
   } else {
-    // Old backup: let migration v2 run on next app start
+    // Old backup (pre-v3.0): let migrations v2 and v3 run on next app start
     storage.remove(LOCAL_STORAGE_KEYS.GOAL_ITEMS);
     storage.set(LOCAL_STORAGE_KEYS.SCHEMA_VERSION, 1);
   }

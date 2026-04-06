@@ -82,13 +82,29 @@ export interface EmailService {
   /** Fetch email headers from an IMAP account. */
   fetchEmails(
     account: EmailAccountRef,
-  ): Promise<{ success: boolean; emails?: any[]; error?: string }>;
+  ): Promise<{
+    success: boolean;
+    emails?: any[];
+    error?: string;
+    /** Stable error code from EMAIL_ERROR_CODES — present on failure. */
+    code?: string;
+    /** Operation trace ID for correlating logs with user reports. */
+    operationId?: string;
+  }>;
 
   /** Fetch the full body of a single email by UID. */
   fetchEmailBody(
     account: EmailAccountRef,
     uid: string,
-  ): Promise<{ success: boolean; body?: string; error?: string }>;
+  ): Promise<{
+    success: boolean;
+    body?: string;
+    error?: string;
+    /** Stable error code from EMAIL_ERROR_CODES — present on failure. */
+    code?: string;
+    /** Operation trace ID for correlating logs with user reports. */
+    operationId?: string;
+  }>;
 
   /**
    * One-shot IMAP connection test before an account is saved.
@@ -96,7 +112,14 @@ export interface EmailService {
    */
   testConnection(
     creds: EmailTestCredentials,
-  ): Promise<{ success: boolean; error?: string }>;
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    /** Stable error code from EMAIL_ERROR_CODES — present on failure. */
+    code?: string;
+    /** Operation trace ID for correlating logs with user reports. */
+    operationId?: string;
+  }>;
 }
 
 // ---------------------------------------------------------------------------

@@ -39,7 +39,7 @@ export interface GoalCoverageSummary {
 export interface SuggestedBlock {
   title: string;
   parentGoalId: string;
-  linkedTodoId?: string | number;
+  linkedTodoId?: string;
   /** Suggested calendar day (YYYY-MM-DD). */
   dateKey: string;
   suggestedHour: number;
@@ -53,7 +53,7 @@ export interface SuggestedBlock {
 
 /** True if the todo already has a time block this week (by direct ID or goal coverage). */
 function isTodoScheduledInWeek(
-  todoId: string | number,
+  todoId: string,
   parentGoalId: string | undefined,
   currentWeek: WeekData,
 ): boolean {
@@ -69,7 +69,7 @@ function isTodoScheduledInWeek(
 
 /** True if the todo has a time block on a specific day (for daily-granularity checks). */
 function isTodoScheduledOnDay(
-  todoId: string | number,
+  todoId: string,
   parentGoalId: string | undefined,
   dayEvents: CalendarEvent[],
 ): boolean {
