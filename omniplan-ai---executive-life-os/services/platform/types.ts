@@ -90,6 +90,12 @@ export interface EmailService {
     code?: string;
     /** Operation trace ID for correlating logs with user reports. */
     operationId?: string;
+    /**
+     * IMAP lifecycle phase where the failure occurred — present on failure.
+     * Stable values: 'credentials' | 'connect' | 'auth' | 'mailbox-open' |
+     *   'fetch' | 'parse' | 'logout' | 'cleanup'
+     */
+    phase?: string;
   }>;
 
   /** Fetch the full body of a single email by UID. */
@@ -104,6 +110,12 @@ export interface EmailService {
     code?: string;
     /** Operation trace ID for correlating logs with user reports. */
     operationId?: string;
+    /**
+     * IMAP lifecycle phase where the failure occurred — present on failure.
+     * Stable values: 'credentials' | 'connect' | 'auth' | 'mailbox-open' |
+     *   'fetch' | 'parse' | 'logout' | 'cleanup'
+     */
+    phase?: string;
   }>;
 
   /**
@@ -119,6 +131,12 @@ export interface EmailService {
     code?: string;
     /** Operation trace ID for correlating logs with user reports. */
     operationId?: string;
+    /**
+     * IMAP lifecycle phase where the failure occurred — present on failure.
+     * Stable values: 'credentials' | 'connect' | 'auth' | 'mailbox-open' |
+     *   'fetch' | 'parse' | 'logout' | 'cleanup'
+     */
+    phase?: string;
   }>;
 }
 

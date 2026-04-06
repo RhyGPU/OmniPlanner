@@ -74,13 +74,15 @@ function deleteCredential(key) {
  * Never include credentials or message bodies in log output.
  */
 function classifyImapError(error) {
-  const msg = (error.message || '').toLowerCase();
-  const code = error.code || '';
+  // Null-safe extraction — error may be a non-Error object or null
+  const msg = (error && error.message) ? error.message.toLowerCase() : '';
+  const code = (error && error.code) ? String(error.code) : '';
 
-  // Network / connectivity
+  // Network / connectivity — check error.code first (most reliable)
   if (code === 'ENOTFOUND' || msg.includes('getaddrinfo')) return 'EMAIL_DNS_FAILURE';
   if (code === 'ECONNREFUSED') return 'EMAIL_CONNECTION_REFUSED';
-  if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'EHOSTUNREACH') return 'EMAIL_NETWORK_TIMEOUT';
+  if (code === 'ETIMEDOUT' || msg.includes('timed out') || msg.includes('timeout')) return 'EMAIL_NETWORK_TIMEOUT';
+  if (code === 'ECONNRESET' || code === 'EHOSTUNREACH') return 'EMAIL_NETWORK_TIMEOUT';
   if (msg.includes('certificate') || msg.includes('ssl') || msg.includes('tls handshake')) return 'EMAIL_TLS_HANDSHAKE_FAILED';
 
   // Authentication — order matters: app password hint before generic auth fail
@@ -94,6 +96,22 @@ function classifyImapError(error) {
   if (msg.includes('mailbox') && (msg.includes('not found') || msg.includes('does not exist'))) return 'EMAIL_MAILBOX_NOT_FOUND';
 
   return 'EMAIL_IMAP_FETCH_FAILED';
+}
+
+/**
+ * Best-effort IMAP client cleanup after a failure.
+ * Uses close() rather than logout() because logout() requires a live server
+ * round-trip and may itself throw if the connection is already broken.
+ * Logs cleanup errors separately so they never mask the primary failure.
+ */
+async function safeImapClose(client, opId, context) {
+  if (!client) return;
+  try {
+    await client.close();
+  } catch (cleanupErr) {
+    const cleanupMsg = (cleanupErr && cleanupErr.message) ? cleanupErr.message : String(cleanupErr);
+    console.error(`[${context} ${opId}] cleanup-error msg="${cleanupMsg}"`);
+  }
 }
 
 /** Generate a short operation ID for correlating logs with user reports. */
@@ -299,54 +317,100 @@ ipcMain.handle('keychain:delete', (_event, key) => { deleteCredential(key); });
 // keychain:set afterwards if the test passes.
 ipcMain.handle('email:test-connection', async (_event, { email, password, provider, imapHost, imapPort }) => {
   const opId = makeOpId('email-test');
+  let phase = 'availability';
   console.log(`[email:test ${opId}] provider=${provider} phase=start`);
+  let client;
   try {
     const { ImapFlow } = require('imapflow');
     const hostConfig = IMAP_HOSTS[provider] || { host: imapHost, port: imapPort || 993 };
-    const client = new ImapFlow({
+
+    client = new ImapFlow({
       host: hostConfig.host, port: hostConfig.port, secure: true,
       auth: { user: email, pass: password }, logger: false,
+      // Prevent indefinite hangs on unresponsive servers
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
     });
+
+    // Absorb socket-level error events that fire outside the main async chain.
+    // Without this listener, an unexpected socket error after connect() would
+    // become an uncaught exception in the main process.
+    client.on('error', (socketErr) => {
+      const socketCode = classifyImapError(socketErr);
+      const socketMsg = (socketErr && socketErr.message) ? socketErr.message : String(socketErr);
+      console.error(`[email:test ${opId}] socket-level-error code=${socketCode} phase=${phase} msg="${socketMsg}"`);
+    });
+
+    phase = 'connect';
     await client.connect();
     console.log(`[email:test ${opId}] phase=connected`);
-    await client.logout();
+
+    phase = 'logout';
+    try {
+      await client.logout();
+    } catch (logoutErr) {
+      const logoutMsg = (logoutErr && logoutErr.message) ? logoutErr.message : String(logoutErr);
+      console.error(`[email:test ${opId}] cleanup-error phase=logout msg="${logoutMsg}"`);
+      // Connection test succeeded even if logout is noisy — the server accepted credentials
+    }
+
     console.log(`[email:test ${opId}] phase=complete`);
     return { success: true, operationId: opId };
   } catch (error) {
     const code = classifyImapError(error);
-    console.error(`[email:test ${opId}] phase=failed code=${code} error="${error.message}"`);
-    return { success: false, code, error: error.message, operationId: opId };
+    const errMsg = (error && error.message) ? error.message : String(error);
+    console.error(`[email:test ${opId}] phase=failed code=${code} failPhase=${phase} error="${errMsg}"`);
+    await safeImapClose(client, opId, 'email:test');
+    return { success: false, code, error: errMsg, operationId: opId, phase };
   }
 });
 
 // Email IMAP handlers
 ipcMain.handle('email:fetch', async (_event, account) => {
   const opId = makeOpId('email-fetch');
+  let phase = 'availability';
   console.log(`[email:fetch ${opId}] accountId=${account.id} provider=${account.provider} phase=start`);
+  let client;
   try {
     const { ImapFlow } = require('imapflow');
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+
+    phase = 'credentials';
     const password = getCredential(`omni_email_pw_${account.id}`);
     if (!password) {
       console.error(`[email:fetch ${opId}] accountId=${account.id} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
-      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account. Re-enter your password in Settings.', operationId: opId };
+      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account. Re-enter your password in Settings.', operationId: opId, phase };
     }
 
-    const client = new ImapFlow({
+    client = new ImapFlow({
       host: hostConfig.host,
       port: hostConfig.port,
       secure: true,
       auth: { user: account.email, pass: password },
       logger: false,
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
     });
 
+    client.on('error', (socketErr) => {
+      const socketCode = classifyImapError(socketErr);
+      const socketMsg = (socketErr && socketErr.message) ? socketErr.message : String(socketErr);
+      console.error(`[email:fetch ${opId}] accountId=${account.id} socket-level-error code=${socketCode} phase=${phase} msg="${socketMsg}"`);
+    });
+
+    phase = 'connect';
     await client.connect();
     console.log(`[email:fetch ${opId}] accountId=${account.id} phase=connected`);
+
+    phase = 'mailbox-open';
     const lock = await client.getMailboxLock('INBOX');
     console.log(`[email:fetch ${opId}] accountId=${account.id} phase=mailbox-open`);
     const emails = [];
 
     try {
+      phase = 'fetch';
       // Fetch last 50 emails
       const totalMessages = client.mailbox.exists;
       const startSeq = Math.max(1, totalMessages - 49);
@@ -370,44 +434,72 @@ ipcMain.handle('email:fetch', async (_event, account) => {
       lock.release();
     }
 
-    await client.logout();
+    phase = 'logout';
+    try {
+      await client.logout();
+    } catch (logoutErr) {
+      const logoutMsg = (logoutErr && logoutErr.message) ? logoutErr.message : String(logoutErr);
+      console.error(`[email:fetch ${opId}] accountId=${account.id} cleanup-error phase=logout msg="${logoutMsg}"`);
+      // Fetch succeeded — do not let a noisy logout replace the success response
+    }
+
     console.log(`[email:fetch ${opId}] accountId=${account.id} phase=complete count=${emails.length}`);
     return { success: true, emails: emails.reverse(), operationId: opId };
   } catch (error) {
     const code = classifyImapError(error);
-    console.error(`[email:fetch ${opId}] accountId=${account.id} phase=failed code=${code} error="${error.message}"`);
-    return { success: false, code, error: error.message, operationId: opId };
+    const errMsg = (error && error.message) ? error.message : String(error);
+    console.error(`[email:fetch ${opId}] accountId=${account.id} phase=failed code=${code} failPhase=${phase} error="${errMsg}"`);
+    await safeImapClose(client, opId, 'email:fetch');
+    return { success: false, code, error: errMsg, operationId: opId, phase };
   }
 });
 
 ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
   const opId = makeOpId('email-body');
+  let phase = 'availability';
   console.log(`[email:body ${opId}] accountId=${account.id} provider=${account.provider} phase=start`);
+  let client;
   try {
     const { ImapFlow } = require('imapflow');
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+
+    phase = 'credentials';
     const password = getCredential(`omni_email_pw_${account.id}`);
     if (!password) {
       console.error(`[email:body ${opId}] accountId=${account.id} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
-      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account.', operationId: opId };
+      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account.', operationId: opId, phase };
     }
 
-    const client = new ImapFlow({
+    client = new ImapFlow({
       host: hostConfig.host,
       port: hostConfig.port,
       secure: true,
       auth: { user: account.email, pass: password },
       logger: false,
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
     });
 
+    client.on('error', (socketErr) => {
+      const socketCode = classifyImapError(socketErr);
+      const socketMsg = (socketErr && socketErr.message) ? socketErr.message : String(socketErr);
+      console.error(`[email:body ${opId}] accountId=${account.id} socket-level-error code=${socketCode} phase=${phase} msg="${socketMsg}"`);
+    });
+
+    phase = 'connect';
     await client.connect();
     console.log(`[email:body ${opId}] accountId=${account.id} phase=connected`);
+
+    phase = 'mailbox-open';
     const lock = await client.getMailboxLock('INBOX');
 
     let body = '';
     try {
+      phase = 'fetch';
       const message = await client.fetchOne(uid, { source: true }, { uid: true });
       if (message?.source) {
+        phase = 'parse';
         // Simple text extraction from raw email source
         const source = message.source.toString();
         // Try to extract plain text body
@@ -430,12 +522,21 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
       lock.release();
     }
 
-    await client.logout();
+    phase = 'logout';
+    try {
+      await client.logout();
+    } catch (logoutErr) {
+      const logoutMsg = (logoutErr && logoutErr.message) ? logoutErr.message : String(logoutErr);
+      console.error(`[email:body ${opId}] accountId=${account.id} cleanup-error phase=logout msg="${logoutMsg}"`);
+    }
+
     console.log(`[email:body ${opId}] accountId=${account.id} phase=complete`);
     return { success: true, body, operationId: opId };
   } catch (error) {
     const code = classifyImapError(error);
-    console.error(`[email:body ${opId}] accountId=${account.id} phase=failed code=${code} error="${error.message}"`);
-    return { success: false, code, error: error.message, operationId: opId };
+    const errMsg = (error && error.message) ? error.message : String(error);
+    console.error(`[email:body ${opId}] accountId=${account.id} phase=failed code=${code} failPhase=${phase} error="${errMsg}"`);
+    await safeImapClose(client, opId, 'email:body');
+    return { success: false, code, error: errMsg, operationId: opId, phase };
   }
 });
