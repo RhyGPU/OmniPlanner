@@ -354,6 +354,276 @@ async function exchangeCodeForTokens(providerKey, authCode, verifier, accountId,
 }
 
 // ---------------------------------------------------------------------------
+// OAuth token lifecycle helpers — Phase 21-C
+// ---------------------------------------------------------------------------
+
+/**
+ * Map an email provider key to an OAUTH_CLIENTS key.
+ * Returns null for providers that do not support OAuth.
+ */
+function getOAuthClientKey(provider) {
+  const map = { gmail: 'google', outlook: 'microsoft' };
+  return map[provider] || null;
+}
+
+/**
+ * Returns true when an IMAP error code warrants a single token-refresh attempt
+ * for OAuth-backed accounts.
+ *
+ * Only EMAIL_AUTH_FAILED is eligible: it is the canonical IMAP signal that
+ * the server rejected our credentials, which for XOAUTH2 means the access
+ * token may be expired. Network, TLS, and mailbox errors are never eligible.
+ */
+function shouldAttemptOAuthRefresh(errorCode) {
+  return errorCode === 'EMAIL_AUTH_FAILED';
+}
+
+/**
+ * Attempt to refresh the OAuth access token for an account using the stored
+ * refresh token. On success, the new access token is written back to
+ * safeStorage so the next getImapAuth() call will use it.
+ *
+ * Returns { success: true } on success.
+ * Returns { success: false, code } on any failure — never throws.
+ * Never logs tokens or refresh tokens.
+ */
+async function refreshOAuthToken(accountId, providerKey, opId) {
+  const client = OAUTH_CLIENTS[providerKey];
+  if (!client || !client.clientId) {
+    console.error(`[email:oauth ${opId}] refresh: no client config for providerKey="${providerKey}"`);
+    return { success: false, code: 'EMAIL_OAUTH_PROVIDER_UNSUPPORTED' };
+  }
+
+  const refreshToken = getCredential(`omni_email_oauth_refresh_${accountId}`);
+  if (!refreshToken) {
+    console.error(`[email:oauth ${opId}] accountId=${accountId} phase=oauth-refresh no refresh token stored`);
+    return { success: false, code: 'EMAIL_OAUTH_REFRESH_UNAVAILABLE' };
+  }
+
+  console.log(`[email:oauth ${opId}] accountId=${accountId} provider=${providerKey} phase=oauth-refresh start`);
+
+  const params = {
+    grant_type: 'refresh_token',
+    client_id: client.clientId,
+    refresh_token: refreshToken,
+  };
+  // Microsoft requires the scope in the refresh request; Google accepts it too
+  if (client.scopes && client.scopes.length > 0) {
+    params.scope = client.scopes.join(' ');
+  }
+
+  let tokenResp;
+  try {
+    tokenResp = await makeNetPost(
+      client.tokenUrl,
+      new URLSearchParams(params).toString(),
+      { 'Content-Type': 'application/x-www-form-urlencoded' },
+    );
+  } catch (err) {
+    const errMsg = (err && err.message) ? err.message : String(err);
+    console.error(`[email:oauth ${opId}] accountId=${accountId} phase=oauth-refresh POST failed: ${errMsg}`);
+    return { success: false, code: 'EMAIL_OAUTH_REFRESH_FAILED' };
+  }
+
+  const tokenData = tokenResp && tokenResp.data;
+  if (!tokenData || !tokenData.access_token) {
+    const apiErr = (tokenData && tokenData.error) || `HTTP ${tokenResp && tokenResp.status}`;
+    console.error(`[email:oauth ${opId}] accountId=${accountId} phase=oauth-refresh response error="${apiErr}"`);
+    // invalid_grant means the refresh token itself is expired or revoked — user must re-authenticate
+    const needsReauth = tokenData && (tokenData.error === 'invalid_grant' || tokenData.error === 'token_expired');
+    return { success: false, code: needsReauth ? 'EMAIL_OAUTH_REAUTH_REQUIRED' : 'EMAIL_OAUTH_REFRESH_INVALID' };
+  }
+
+  const stored = setCredential(`omni_email_oauth_access_${accountId}`, tokenData.access_token);
+  if (!stored) {
+    console.error(`[email:oauth ${opId}] accountId=${accountId} phase=oauth-refresh safeStorage write failed`);
+    return { success: false, code: 'EMAIL_OAUTH_STORAGE_FAILED' };
+  }
+
+  // Some providers (Google) rotate the refresh token on use
+  if (tokenData.refresh_token) {
+    setCredential(`omni_email_oauth_refresh_${accountId}`, tokenData.refresh_token);
+  }
+
+  console.log(`[email:oauth ${opId}] accountId=${accountId} provider=${providerKey} phase=oauth-refresh complete`);
+  return { success: true };
+}
+
+/**
+ * Core IMAP fetch-headers operation, extracted so it can be called a second
+ * time after a token refresh without duplicating the handler boilerplate.
+ *
+ * isRetry: true on the post-refresh attempt; used only for log tagging.
+ * Never throws — always returns a structured result.
+ */
+async function doEmailFetch(account, opId, isRetry) {
+  const tag = isRetry ? 'fetch-retry' : 'fetch';
+  let phase = 'credentials';
+  let client;
+  try {
+    const { ImapFlow } = require('imapflow');
+    const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+
+    const imapAuth = getImapAuth(account);
+    if (!imapAuth) {
+      console.error(`[email:${tag} ${opId}] accountId=${account.id} authMethod=${account.authMethod || 'imap_password'} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
+      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account. Re-enter your password in Settings.', operationId: opId, phase };
+    }
+
+    client = new ImapFlow({
+      host: hostConfig.host,
+      port: hostConfig.port,
+      secure: true,
+      auth: imapAuth,
+      logger: false,
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
+    });
+
+    client.on('error', (socketErr) => {
+      const socketCode = classifyImapError(socketErr);
+      const socketMsg = (socketErr && socketErr.message) ? socketErr.message : String(socketErr);
+      console.error(`[email:${tag} ${opId}] accountId=${account.id} socket-level-error code=${socketCode} phase=${phase} msg="${socketMsg}"`);
+    });
+
+    phase = 'connect';
+    await client.connect();
+    console.log(`[email:${tag} ${opId}] accountId=${account.id} phase=connected`);
+
+    phase = 'mailbox-open';
+    const lock = await client.getMailboxLock('INBOX');
+    console.log(`[email:${tag} ${opId}] accountId=${account.id} phase=mailbox-open`);
+    const emails = [];
+
+    try {
+      phase = 'fetch';
+      const totalMessages = client.mailbox.exists;
+      const startSeq = Math.max(1, totalMessages - 49);
+
+      for await (const message of client.fetch(`${startSeq}:*`, {
+        envelope: true,
+        uid: true,
+        flags: true,
+      })) {
+        emails.push({
+          uid: message.uid,
+          subject: message.envelope.subject || '(No subject)',
+          sender: message.envelope.from?.[0]?.name || message.envelope.from?.[0]?.address || 'Unknown',
+          senderEmail: message.envelope.from?.[0]?.address || '',
+          date: message.envelope.date?.toISOString() || '',
+          read: message.flags.has('\\Seen'),
+          preview: '',
+        });
+      }
+    } finally {
+      lock.release();
+    }
+
+    phase = 'logout';
+    try {
+      await client.logout();
+    } catch (logoutErr) {
+      const logoutMsg = (logoutErr && logoutErr.message) ? logoutErr.message : String(logoutErr);
+      console.error(`[email:${tag} ${opId}] accountId=${account.id} cleanup-error phase=logout msg="${logoutMsg}"`);
+    }
+
+    console.log(`[email:${tag} ${opId}] accountId=${account.id} phase=complete count=${emails.length}`);
+    return { success: true, emails: emails.reverse(), operationId: opId };
+  } catch (error) {
+    const code = classifyImapError(error);
+    const errMsg = (error && error.message) ? error.message : String(error);
+    console.error(`[email:${tag} ${opId}] accountId=${account.id} phase=failed code=${code} failPhase=${phase} error="${errMsg}"`);
+    await safeImapClose(client, opId, `email:${tag}`);
+    return { success: false, code, error: errMsg, operationId: opId, phase };
+  }
+}
+
+/**
+ * Core IMAP fetch-body operation, extracted for the same reason as doEmailFetch.
+ */
+async function doEmailFetchBody(account, uid, opId, isRetry) {
+  const tag = isRetry ? 'body-retry' : 'body';
+  let phase = 'credentials';
+  let client;
+  try {
+    const { ImapFlow } = require('imapflow');
+    const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+
+    const imapAuth = getImapAuth(account);
+    if (!imapAuth) {
+      console.error(`[email:${tag} ${opId}] accountId=${account.id} authMethod=${account.authMethod || 'imap_password'} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
+      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account.', operationId: opId, phase };
+    }
+
+    client = new ImapFlow({
+      host: hostConfig.host,
+      port: hostConfig.port,
+      secure: true,
+      auth: imapAuth,
+      logger: false,
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
+    });
+
+    client.on('error', (socketErr) => {
+      const socketCode = classifyImapError(socketErr);
+      const socketMsg = (socketErr && socketErr.message) ? socketErr.message : String(socketErr);
+      console.error(`[email:${tag} ${opId}] accountId=${account.id} socket-level-error code=${socketCode} phase=${phase} msg="${socketMsg}"`);
+    });
+
+    phase = 'connect';
+    await client.connect();
+    console.log(`[email:${tag} ${opId}] accountId=${account.id} phase=connected`);
+
+    phase = 'mailbox-open';
+    const lock = await client.getMailboxLock('INBOX');
+
+    let body = '';
+    try {
+      phase = 'fetch';
+      const message = await client.fetchOne(uid, { source: true }, { uid: true });
+      if (message?.source) {
+        phase = 'parse';
+        const source = message.source.toString();
+        const textMatch = source.match(/Content-Type:\s*text\/plain[\s\S]*?\r\n\r\n([\s\S]*?)(?:\r\n--|\r\n\.\r\n|$)/i);
+        if (textMatch) {
+          body = textMatch[1].replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+        } else {
+          const htmlMatch = source.match(/Content-Type:\s*text\/html[\s\S]*?\r\n\r\n([\s\S]*?)(?:\r\n--|\r\n\.\r\n|$)/i);
+          if (htmlMatch) {
+            body = htmlMatch[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          } else {
+            const headerEnd = source.indexOf('\r\n\r\n');
+            body = headerEnd > -1 ? source.substring(headerEnd + 4) : source;
+          }
+        }
+      }
+    } finally {
+      lock.release();
+    }
+
+    phase = 'logout';
+    try {
+      await client.logout();
+    } catch (logoutErr) {
+      const logoutMsg = (logoutErr && logoutErr.message) ? logoutErr.message : String(logoutErr);
+      console.error(`[email:${tag} ${opId}] accountId=${account.id} cleanup-error phase=logout msg="${logoutMsg}"`);
+    }
+
+    console.log(`[email:${tag} ${opId}] accountId=${account.id} phase=complete`);
+    return { success: true, body, operationId: opId };
+  } catch (error) {
+    const code = classifyImapError(error);
+    const errMsg = (error && error.message) ? error.message : String(error);
+    console.error(`[email:${tag} ${opId}] accountId=${account.id} phase=failed code=${code} failPhase=${phase} error="${errMsg}"`);
+    await safeImapClose(client, opId, `email:${tag}`);
+    return { success: false, code, error: errMsg, operationId: opId, phase };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // OAuth 2.0 protocol registration — must run before app.whenReady()
 //
 // Registers `omniplanner://` as this app's custom URL scheme so the OS
@@ -703,178 +973,55 @@ ipcMain.handle('email:test-connection', async (_event, { email, password, provid
   }
 });
 
-// Email IMAP handlers
+// ---------------------------------------------------------------------------
+// Email IMAP handlers — each delegates to a doEmail* helper and applies
+// one token-refresh + one retry for OAuth-backed accounts on auth failure.
+// ---------------------------------------------------------------------------
+
 ipcMain.handle('email:fetch', async (_event, account) => {
   const opId = makeOpId('email-fetch');
-  let phase = 'availability';
-  console.log(`[email:fetch ${opId}] accountId=${account.id} provider=${account.provider} phase=start`);
-  let client;
-  try {
-    const { ImapFlow } = require('imapflow');
-    const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+  console.log(`[email:fetch ${opId}] accountId=${account.id} provider=${account.provider} authMethod=${account.authMethod || 'imap_password'} phase=start`);
 
-    phase = 'credentials';
-    const imapAuth = getImapAuth(account);
-    if (!imapAuth) {
-      const credCode = account.authMethod === 'oauth' ? 'EMAIL_CREDENTIAL_MISSING' : 'EMAIL_CREDENTIAL_MISSING';
-      console.error(`[email:fetch ${opId}] accountId=${account.id} authMethod=${account.authMethod || 'imap_password'} phase=failed code=${credCode}`);
-      return { success: false, code: credCode, error: 'No stored credentials for this account. Re-enter your password in Settings.', operationId: opId, phase };
-    }
+  const firstResult = await doEmailFetch(account, opId, false);
+  if (firstResult.success) return firstResult;
 
-    client = new ImapFlow({
-      host: hostConfig.host,
-      port: hostConfig.port,
-      secure: true,
-      auth: imapAuth,
-      logger: false,
-      connectionTimeout: 15000,
-      greetingTimeout: 10000,
-      socketTimeout: 30000,
-    });
-
-    client.on('error', (socketErr) => {
-      const socketCode = classifyImapError(socketErr);
-      const socketMsg = (socketErr && socketErr.message) ? socketErr.message : String(socketErr);
-      console.error(`[email:fetch ${opId}] accountId=${account.id} socket-level-error code=${socketCode} phase=${phase} msg="${socketMsg}"`);
-    });
-
-    phase = 'connect';
-    await client.connect();
-    console.log(`[email:fetch ${opId}] accountId=${account.id} phase=connected`);
-
-    phase = 'mailbox-open';
-    const lock = await client.getMailboxLock('INBOX');
-    console.log(`[email:fetch ${opId}] accountId=${account.id} phase=mailbox-open`);
-    const emails = [];
-
-    try {
-      phase = 'fetch';
-      // Fetch last 50 emails
-      const totalMessages = client.mailbox.exists;
-      const startSeq = Math.max(1, totalMessages - 49);
-
-      for await (const message of client.fetch(`${startSeq}:*`, {
-        envelope: true,
-        uid: true,
-        flags: true,
-      })) {
-        emails.push({
-          uid: message.uid,
-          subject: message.envelope.subject || '(No subject)',
-          sender: message.envelope.from?.[0]?.name || message.envelope.from?.[0]?.address || 'Unknown',
-          senderEmail: message.envelope.from?.[0]?.address || '',
-          date: message.envelope.date?.toISOString() || '',
-          read: message.flags.has('\\Seen'),
-          preview: '',
-        });
+  // OAuth accounts only: one token refresh + one retry on IMAP auth failure.
+  // Do not attempt refresh for network, TLS, or mailbox errors.
+  if (account.authMethod === 'oauth' && shouldAttemptOAuthRefresh(firstResult.code)) {
+    const providerKey = getOAuthClientKey(account.provider);
+    if (providerKey) {
+      const refreshResult = await refreshOAuthToken(account.id, providerKey, opId);
+      if (refreshResult.success) {
+        console.log(`[email:fetch ${opId}] accountId=${account.id} phase=oauth-retry`);
+        return doEmailFetch(account, opId, true);
       }
-    } finally {
-      lock.release();
+      console.error(`[email:fetch ${opId}] accountId=${account.id} oauth-refresh-failed code=${refreshResult.code}`);
+      return { success: false, code: refreshResult.code, error: 'OAuth token refresh failed.', operationId: opId, phase: 'oauth-refresh' };
     }
-
-    phase = 'logout';
-    try {
-      await client.logout();
-    } catch (logoutErr) {
-      const logoutMsg = (logoutErr && logoutErr.message) ? logoutErr.message : String(logoutErr);
-      console.error(`[email:fetch ${opId}] accountId=${account.id} cleanup-error phase=logout msg="${logoutMsg}"`);
-      // Fetch succeeded — do not let a noisy logout replace the success response
-    }
-
-    console.log(`[email:fetch ${opId}] accountId=${account.id} phase=complete count=${emails.length}`);
-    return { success: true, emails: emails.reverse(), operationId: opId };
-  } catch (error) {
-    const code = classifyImapError(error);
-    const errMsg = (error && error.message) ? error.message : String(error);
-    console.error(`[email:fetch ${opId}] accountId=${account.id} phase=failed code=${code} failPhase=${phase} error="${errMsg}"`);
-    await safeImapClose(client, opId, 'email:fetch');
-    return { success: false, code, error: errMsg, operationId: opId, phase };
   }
+
+  return firstResult;
 });
 
 ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
   const opId = makeOpId('email-body');
-  let phase = 'availability';
-  console.log(`[email:body ${opId}] accountId=${account.id} provider=${account.provider} phase=start`);
-  let client;
-  try {
-    const { ImapFlow } = require('imapflow');
-    const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
+  console.log(`[email:body ${opId}] accountId=${account.id} provider=${account.provider} authMethod=${account.authMethod || 'imap_password'} phase=start`);
 
-    phase = 'credentials';
-    const imapAuth = getImapAuth(account);
-    if (!imapAuth) {
-      console.error(`[email:body ${opId}] accountId=${account.id} authMethod=${account.authMethod || 'imap_password'} phase=failed code=EMAIL_CREDENTIAL_MISSING`);
-      return { success: false, code: 'EMAIL_CREDENTIAL_MISSING', error: 'No stored credentials for this account.', operationId: opId, phase };
-    }
+  const firstResult = await doEmailFetchBody(account, uid, opId, false);
+  if (firstResult.success) return firstResult;
 
-    client = new ImapFlow({
-      host: hostConfig.host,
-      port: hostConfig.port,
-      secure: true,
-      auth: imapAuth,
-      logger: false,
-      connectionTimeout: 15000,
-      greetingTimeout: 10000,
-      socketTimeout: 30000,
-    });
-
-    client.on('error', (socketErr) => {
-      const socketCode = classifyImapError(socketErr);
-      const socketMsg = (socketErr && socketErr.message) ? socketErr.message : String(socketErr);
-      console.error(`[email:body ${opId}] accountId=${account.id} socket-level-error code=${socketCode} phase=${phase} msg="${socketMsg}"`);
-    });
-
-    phase = 'connect';
-    await client.connect();
-    console.log(`[email:body ${opId}] accountId=${account.id} phase=connected`);
-
-    phase = 'mailbox-open';
-    const lock = await client.getMailboxLock('INBOX');
-
-    let body = '';
-    try {
-      phase = 'fetch';
-      const message = await client.fetchOne(uid, { source: true }, { uid: true });
-      if (message?.source) {
-        phase = 'parse';
-        // Simple text extraction from raw email source
-        const source = message.source.toString();
-        // Try to extract plain text body
-        const textMatch = source.match(/Content-Type:\s*text\/plain[\s\S]*?\r\n\r\n([\s\S]*?)(?:\r\n--|\r\n\.\r\n|$)/i);
-        if (textMatch) {
-          body = textMatch[1].replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-        } else {
-          // Fallback: strip HTML tags
-          const htmlMatch = source.match(/Content-Type:\s*text\/html[\s\S]*?\r\n\r\n([\s\S]*?)(?:\r\n--|\r\n\.\r\n|$)/i);
-          if (htmlMatch) {
-            body = htmlMatch[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-          } else {
-            // Last resort: everything after headers
-            const headerEnd = source.indexOf('\r\n\r\n');
-            body = headerEnd > -1 ? source.substring(headerEnd + 4) : source;
-          }
-        }
+  if (account.authMethod === 'oauth' && shouldAttemptOAuthRefresh(firstResult.code)) {
+    const providerKey = getOAuthClientKey(account.provider);
+    if (providerKey) {
+      const refreshResult = await refreshOAuthToken(account.id, providerKey, opId);
+      if (refreshResult.success) {
+        console.log(`[email:body ${opId}] accountId=${account.id} phase=oauth-retry`);
+        return doEmailFetchBody(account, uid, opId, true);
       }
-    } finally {
-      lock.release();
+      console.error(`[email:body ${opId}] accountId=${account.id} oauth-refresh-failed code=${refreshResult.code}`);
+      return { success: false, code: refreshResult.code, error: 'OAuth token refresh failed.', operationId: opId, phase: 'oauth-refresh' };
     }
-
-    phase = 'logout';
-    try {
-      await client.logout();
-    } catch (logoutErr) {
-      const logoutMsg = (logoutErr && logoutErr.message) ? logoutErr.message : String(logoutErr);
-      console.error(`[email:body ${opId}] accountId=${account.id} cleanup-error phase=logout msg="${logoutMsg}"`);
-    }
-
-    console.log(`[email:body ${opId}] accountId=${account.id} phase=complete`);
-    return { success: true, body, operationId: opId };
-  } catch (error) {
-    const code = classifyImapError(error);
-    const errMsg = (error && error.message) ? error.message : String(error);
-    console.error(`[email:body ${opId}] accountId=${account.id} phase=failed code=${code} failPhase=${phase} error="${errMsg}"`);
-    await safeImapClose(client, opId, 'email:body');
-    return { success: false, code, error: errMsg, operationId: opId, phase };
   }
+
+  return firstResult;
 });

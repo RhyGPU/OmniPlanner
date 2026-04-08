@@ -71,6 +71,14 @@ export const EMAIL_ERROR_CODES = {
   EMAIL_OAUTH_SCOPE_DENIED:           'EMAIL_OAUTH_SCOPE_DENIED',
   EMAIL_OAUTH_STORAGE_FAILED:         'EMAIL_OAUTH_STORAGE_FAILED',
   EMAIL_OAUTH_IMAP_UNSUPPORTED:       'EMAIL_OAUTH_IMAP_UNSUPPORTED',
+
+  // OAuth token lifecycle (Phase 21-C)
+  // These codes are stable — do not rename shipped values.
+  EMAIL_OAUTH_TOKEN_EXPIRED:          'EMAIL_OAUTH_TOKEN_EXPIRED',
+  EMAIL_OAUTH_REFRESH_FAILED:         'EMAIL_OAUTH_REFRESH_FAILED',
+  EMAIL_OAUTH_REAUTH_REQUIRED:        'EMAIL_OAUTH_REAUTH_REQUIRED',
+  EMAIL_OAUTH_REFRESH_UNAVAILABLE:    'EMAIL_OAUTH_REFRESH_UNAVAILABLE',
+  EMAIL_OAUTH_REFRESH_INVALID:        'EMAIL_OAUTH_REFRESH_INVALID',
 } as const;
 
 export type EmailErrorCode = typeof EMAIL_ERROR_CODES[keyof typeof EMAIL_ERROR_CODES];
@@ -216,6 +224,18 @@ const EMAIL_USER_MESSAGES: Record<EmailErrorCode, string> = {
     'Sign-in succeeded but credentials could not be saved securely. Restart the app and try again.',
   EMAIL_OAUTH_IMAP_UNSUPPORTED:
     'This provider account does not support IMAP access via sign-in. Use an app password instead.',
+
+  // OAuth token lifecycle
+  EMAIL_OAUTH_TOKEN_EXPIRED:
+    'Your session has expired. Open Settings and reconnect this account.',
+  EMAIL_OAUTH_REFRESH_FAILED:
+    'Could not refresh your session — check your network connection and try again.',
+  EMAIL_OAUTH_REAUTH_REQUIRED:
+    'Your session has expired and could not be renewed. Open Settings and sign in again.',
+  EMAIL_OAUTH_REFRESH_UNAVAILABLE:
+    'Session renewal is unavailable for this account. Open Settings and sign in again.',
+  EMAIL_OAUTH_REFRESH_INVALID:
+    'The provider rejected the session renewal. Open Settings and sign in again.',
 };
 
 // ---------------------------------------------------------------------------

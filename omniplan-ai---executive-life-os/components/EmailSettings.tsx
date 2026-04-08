@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Plus, Trash2, TestTube, Check, X, Mail, AlertTriangle, LogIn, Lock } from 'lucide-react';
+import { Plus, Trash2, TestTube, Check, X, Mail, AlertTriangle, LogIn, Lock, RefreshCw } from 'lucide-react';
 import { EmailAccount } from '../types';
 import { platform } from '../services/platform';
 import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
@@ -31,15 +31,21 @@ export const EmailSettings: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [testStatus, setTestStatus] = useState<Record<string, 'testing' | 'success' | 'error'>>({});
   const [testErrors, setTestErrors] = useState<Record<string, string>>({});
+  // Tracks the specific error code from the last test per account, so we can
+  // show a targeted reconnect path for OAuth accounts needing re-auth.
+  const [testCodes, setTestCodes] = useState<Record<string, string>>({});
   const [keychainUnavailable, setKeychainUnavailable] = useState(false);
 
   // When adding an account: tracks whether user chose the manual IMAP form
   // over the OAuth button for an OAuth-capable provider.
   const [useManualForm, setUseManualForm] = useState(false);
 
-  // OAuth login status
+  // OAuth login status (for the "add account" flow)
   const [oauthStatus, setOauthStatus] = useState<null | 'pending' | 'success' | 'error'>(null);
   const [oauthError, setOauthError] = useState('');
+
+  // Reconnect flow (for existing OAuth accounts needing re-auth)
+  const [reconnectingId, setReconnectingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -155,15 +161,48 @@ export const EmailSettings: React.FC = () => {
     }
     setTestStatus(prev => ({ ...prev, [account.id]: 'testing' }));
     setTestErrors(prev => { const n = { ...prev }; delete n[account.id]; return n; });
+    setTestCodes(prev => { const n = { ...prev }; delete n[account.id]; return n; });
     try {
       const result = await platform.email.fetchEmails(account);
       setTestStatus(prev => ({ ...prev, [account.id]: result.success ? 'success' : 'error' }));
       if (!result.success) {
         setTestErrors(prev => ({ ...prev, [account.id]: getEmailUserMessage(result.code) }));
+        if (result.code) setTestCodes(prev => ({ ...prev, [account.id]: result.code! }));
       }
     } catch {
       setTestStatus(prev => ({ ...prev, [account.id]: 'error' }));
       setTestErrors(prev => ({ ...prev, [account.id]: 'Connection failed unexpectedly. Try again.' }));
+    }
+  };
+
+  /**
+   * Re-run the OAuth sign-in flow for an existing account, reusing its id so
+   * new tokens overwrite the old ones in safeStorage. Clears any error state
+   * on success. The account record itself is unchanged — only the stored tokens
+   * are refreshed.
+   */
+  const reconnectOAuth = async (account: EmailAccount) => {
+    if (account.authMethod !== 'oauth') return;
+    setReconnectingId(account.id);
+    try {
+      const result = await platform.email.startOAuthLogin({
+        provider: account.provider as 'gmail' | 'outlook',
+        accountId: account.id,
+      });
+      if (result.success) {
+        setTestStatus(prev => { const n = { ...prev }; delete n[account.id]; return n; });
+        setTestErrors(prev => { const n = { ...prev }; delete n[account.id]; return n; });
+        setTestCodes(prev => { const n = { ...prev }; delete n[account.id]; return n; });
+      } else {
+        setTestStatus(prev => ({ ...prev, [account.id]: 'error' }));
+        setTestErrors(prev => ({ ...prev, [account.id]: getEmailUserMessage(result.code) }));
+        if (result.code) setTestCodes(prev => ({ ...prev, [account.id]: result.code! }));
+      }
+    } catch {
+      setTestStatus(prev => ({ ...prev, [account.id]: 'error' }));
+      setTestErrors(prev => ({ ...prev, [account.id]: 'Reconnect failed unexpectedly. Try again.' }));
+    } finally {
+      setReconnectingId(null);
     }
   };
 
@@ -463,19 +502,31 @@ export const EmailSettings: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => testConnection(account)}
-                  className={`p-2 rounded-lg transition-all ${
-                    testStatus[account.id] === 'success' ? 'bg-emerald-100 text-emerald-600' :
-                    testStatus[account.id] === 'error' ? 'bg-red-100 text-red-600' :
-                    'bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-600'
-                  }`}
-                  title="Test Connection"
-                >
-                  {testStatus[account.id] === 'success' ? <Check size={16}/> :
-                   testStatus[account.id] === 'testing' ? <TestTube size={16} className="animate-pulse"/> :
-                   <TestTube size={16}/>}
-                </button>
+                {account.authMethod === 'oauth' && testCodes[account.id] === 'EMAIL_OAUTH_REAUTH_REQUIRED' ? (
+                  <button
+                    onClick={() => reconnectOAuth(account)}
+                    disabled={reconnectingId === account.id}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg text-xs font-bold hover:bg-amber-200 transition-all disabled:opacity-50"
+                    title="Session expired — click to reconnect"
+                  >
+                    <RefreshCw size={13} className={reconnectingId === account.id ? 'animate-spin' : ''}/>
+                    {reconnectingId === account.id ? 'Signing in…' : 'Reconnect'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => testConnection(account)}
+                    className={`p-2 rounded-lg transition-all ${
+                      testStatus[account.id] === 'success' ? 'bg-emerald-100 text-emerald-600' :
+                      testStatus[account.id] === 'error' ? 'bg-red-100 text-red-600' :
+                      'bg-slate-100 text-slate-500 hover:bg-blue-100 hover:text-blue-600'
+                    }`}
+                    title="Test Connection"
+                  >
+                    {testStatus[account.id] === 'success' ? <Check size={16}/> :
+                     testStatus[account.id] === 'testing' ? <TestTube size={16} className="animate-pulse"/> :
+                     <TestTube size={16}/>}
+                  </button>
+                )}
                 <button
                   onClick={() => removeAccount(account.id)}
                   className="p-2 rounded-lg bg-slate-100 text-slate-400 hover:bg-red-100 hover:text-red-600 transition-all"
