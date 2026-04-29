@@ -3,3 +3,7 @@ OmniPlanner is a free, open-source planning platform built to help people live w
 The product is built around a simple belief: personal discipline should be a right, not a premium subscription. That is why the core app is free, open, and designed to protect attention rather than exploit it. Long-term goals can be broken down into monthly, weekly, and daily action, then connected directly to calendar time and execution tools. Optional AI can assist when invited, but it is never the center of the experience.
 
 We are not trying to build a louder productivity app. We are building a quieter, more trustworthy one, sustained through donations and ethical sponsorships instead of ads, surveillance, or invasive monetization.
+
+## License
+
+OmniPlanner is licensed under the AGPL-3.0-or-later. See [LICENSE](LICENSE).
