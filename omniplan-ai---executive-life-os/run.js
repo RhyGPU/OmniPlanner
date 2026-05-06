@@ -1,49 +1,55 @@
 #!/usr/bin/env node
 
 /**
- * OmniPlan AI — Desktop App Launcher
+ * OmniPlan AI desktop app launcher.
  *
- * Double-click this file (or run: node run.js) to build and launch the app.
- * No terminal knowledge needed.
+ * Run with: node run.js
  */
 
-const { execSync, spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+import { execFileSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import electron from 'electron';
 
 const isWindows = process.platform === 'win32';
 const npm = isWindows ? 'npm.cmd' : 'npm';
-const cwd = __dirname;
+const cwd = path.dirname(fileURLToPath(import.meta.url));
 
-function log(msg) {
-  console.log('[OmniPlan] ' + msg);
+function log(message) {
+  console.log(`[OmniPlan] ${message}`);
 }
 
-// Check if node_modules exists
+function run(command, args) {
+  execFileSync(command, args, { cwd, stdio: 'inherit' });
+}
+
 if (!fs.existsSync(path.join(cwd, 'node_modules'))) {
-  log('First run - installing dependencies (one-time)...');
-  execSync(npm + ' install', { cwd, stdio: 'inherit' });
+  log('First run - installing dependencies...');
+  run(npm, ['install']);
 }
 
-// Check if dist/index.html exists — if not, build
 const distIndex = path.join(cwd, 'dist', 'index.html');
 if (!fs.existsSync(distIndex)) {
   log('Building app...');
-  execSync(npm + ' run build', { cwd, stdio: 'inherit' });
+  run(npm, ['run', 'build']);
 }
 
-// Launch Electron
 log('Starting OmniPlan AI...');
-const electron = require('electron');
-const electronPath = typeof electron === 'string' ? electron : (electron.default || electron);
-
+const electronPath = typeof electron === 'string' ? electron : electron.default;
 const child = spawn(electronPath, ['.'], {
   cwd,
-  stdio: 'ignore',
   detached: true,
+  stdio: process.env.OMNIPLAN_DEBUG ? 'inherit' : 'ignore',
+  windowsHide: false,
+});
+
+child.on('error', error => {
+  console.error('[OmniPlan] Could not start Electron:', error.message);
+  process.exit(1);
 });
 
 child.unref();
-log('App launched. You can close this window.');
+log('Opening planner window...');
 
-setTimeout(function() { process.exit(0); }, 500);
+setTimeout(() => process.exit(0), 1000);

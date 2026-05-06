@@ -236,7 +236,7 @@ export const DataView: React.FC<DataViewProps> = ({
                     </div>
                 </div>
 
-                {/* Restore card — two-step flow */}
+                {/* Restore card: two-step flow */}
                 <div
                     className={`group bg-slate-50 border-2 p-10 rounded-[2.5rem] relative transition-all duration-500 ${
                         dragOver
@@ -253,7 +253,7 @@ export const DataView: React.FC<DataViewProps> = ({
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                 >
-                    {/* Hidden file input — only active when no preview */}
+                    {/* Hidden file input, only active when no preview. */}
                     {!preview && !isRestoreBusy && (
                         <input
                             ref={fileInputRef}
@@ -287,20 +287,20 @@ export const DataView: React.FC<DataViewProps> = ({
                             </div>
                             <h3 className="font-black text-2xl text-slate-900 mb-3 tracking-tight">
                                 {restoreStatus === 'restoring'
-                                    ? 'Restoring…'
+                                    ? 'Restoring...'
                                     : restoreStatus === 'success'
-                                    ? 'Restored! Reloading…'
+                                    ? 'Restored! Reloading...'
                                     : restoreStatus === 'error'
                                     ? 'Restore Failed'
                                     : previewLoading
-                                    ? 'Reading backup…'
+                                    ? 'Reading backup...'
                                     : 'Restore Backup'}
                             </h3>
                             <p className="text-slate-500 font-bold leading-relaxed text-sm">
                                 {dragOver
-                                    ? 'Drop your backup file here…'
+                                    ? 'Drop your backup file here...'
                                     : restoreStatus === 'restoring'
-                                    ? 'Writing backup data to local storage…'
+                                    ? 'Writing backup data to local storage...'
                                     : restoreStatus === 'success'
                                     ? 'Backup written. The app will reload momentarily.'
                                     : restoreStatus === 'error'
@@ -308,7 +308,7 @@ export const DataView: React.FC<DataViewProps> = ({
                                     : previewError
                                     ? previewError
                                     : previewLoading
-                                    ? 'Validating file…'
+                                    ? 'Validating file...'
                                     : 'Click or drag a .json backup file. You\'ll see a preview before anything is overwritten.'}
                             </p>
                         </>
@@ -319,7 +319,7 @@ export const DataView: React.FC<DataViewProps> = ({
                         <div className="relative z-20">
                             <div className="flex items-start justify-between mb-5">
                                 <div>
-                                    <div className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Preview — nothing written yet</div>
+                                    <div className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Preview - nothing written yet</div>
                                     <h3 className="font-black text-xl text-slate-900 tracking-tight">Confirm Restore</h3>
                                 </div>
                                 <button
@@ -360,7 +360,7 @@ export const DataView: React.FC<DataViewProps> = ({
                             {/* Format note */}
                             {!preview.hasGoalItems && (
                                 <p className="text-[10px] font-bold text-amber-600 mb-3 bg-amber-50 rounded-xl px-3 py-2 border border-amber-100">
-                                    Older backup format — life goals will be migrated on next app start.
+                                    Older backup format - life goals will be migrated on next app start.
                                 </p>
                             )}
 
@@ -368,14 +368,14 @@ export const DataView: React.FC<DataViewProps> = ({
                             {preview.warnings.length > 0 && (
                                 <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
                                     {preview.warnings.map((w, i) => (
-                                        <p key={i} className="text-[10px] font-bold text-amber-700">• {w}</p>
+                                        <p key={i} className="text-[10px] font-bold text-amber-700">{w}</p>
                                     ))}
                                 </div>
                             )}
 
                             {/* What will be restored */}
                             <p className="text-[10px] font-bold text-slate-400 mb-4 leading-relaxed">
-                                Restoring will overwrite your current planner data. API keys, email passwords, and notification preferences are not affected — they live outside the backup.
+                                Restoring will overwrite your current planner data. API keys, email passwords, and notification preferences are not affected because they live outside the backup.
                             </p>
 
                             {/* Actions */}

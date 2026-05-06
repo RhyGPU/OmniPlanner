@@ -5,6 +5,13 @@ import { storage, LOCAL_STORAGE_KEYS } from '../services/storage';
 /**
  * Create a new empty week structure
  */
+export const createEmptyDailyPlan = (): DailyPlan => ({
+  focus: '',
+  todos: [],
+  notes: '',
+  events: [],
+});
+
 export const createEmptyWeek = (date: Date): WeekData => {
   const weekDates = getWeekDays(date);
   const weekStartDate = formatDateKey(weekDates[0]); // Monday
@@ -14,12 +21,7 @@ export const createEmptyWeek = (date: Date): WeekData => {
   const dailyPlans: Record<string, DailyPlan> = {};
   weekDates.forEach(d => {
     const dateKey = formatDateKey(d);
-    dailyPlans[dateKey] = {
-      focus: '',
-      todos: [],
-      notes: '',
-      events: [],
-    };
+    dailyPlans[dateKey] = createEmptyDailyPlan();
   });
 
   return {

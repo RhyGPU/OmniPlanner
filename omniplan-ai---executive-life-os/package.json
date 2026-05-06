@@ -21,6 +21,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "npm run build && electron .",
+    "launch": "node run.js",
+    "shortcut": "create-shortcut.bat",
     "start:dev": "cross-env VITE_DEV_SERVER_URL=http://localhost:3000 electron .",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
@@ -78,7 +80,7 @@
         "nsis",
         "portable"
       ],
-      "requestedExecutionLevel": "requireAdministrator"
+      "requestedExecutionLevel": "asInvoker"
     },
     "mac": {
       "target": [

@@ -1,20 +1,27 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# OmniPlan AI
 
-# Run and deploy your AI Studio app
+OmniPlan AI is a desktop-first planning workspace for weekly planning, goals, calendar blocks, habits, email, and optional AI assistance.
 
-This contains everything you need to run your app locally.
+## Launch On Windows
 
-View your app in AI Studio: https://ai.studio/apps/drive/1Kj-PBOZNNh3ktufhMTmY5wZHBrukNSH-
+1. Install [Node.js](https://nodejs.org/) if it is not already installed.
+2. Double-click `run.bat`.
+3. To create a desktop shortcut, double-click `create-shortcut.bat`.
 
-## Run Locally
+The launcher installs dependencies on first run, builds the app if needed, then opens the Electron desktop app.
 
-**Prerequisites:**  Node.js
+## Developer Commands
 
+```bash
+npm install
+npm run build
+npm run launch
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Use `npm run dev` for the Vite web dev server, or `npm run start` to build and start Electron directly.
+
+## Notes
+
+- App data is stored locally on the device.
+- Desktop shortcuts point to `run.bat`, so moving this folder after creating a shortcut requires recreating the shortcut.
+- Packaged Windows builds run as the current user and do not require administrator elevation.

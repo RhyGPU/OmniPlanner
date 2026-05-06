@@ -2,9 +2,8 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, X, Edit3, Clock, Plus, Trash2 } from 'lucide-react';
 import { WeekData, DailyPlan, CalendarEvent } from '../types';
-import { MONTHS, formatDateKey, formatHour } from '../constants';
-import { getWeeksInRange, getOrCreateWeek, getWeekStorageKey } from '../utils/weekManager';
-import { generateTimeSlots } from '../constants';
+import { MONTHS, formatDateKey, formatHour, generateTimeSlots } from '../constants';
+import { createEmptyDailyPlan, getWeeksInRange, getOrCreateWeek } from '../utils/weekManager';
 
 interface MonthlyViewProps {
   currentDate: Date;
@@ -45,13 +44,13 @@ export const MonthlyView: React.FC<MonthlyViewProps> = ({
   // Get day plan (returns empty defaults if none exists yet)
   const getDayPlan = useCallback((dateKey: string): DailyPlan => {
     const result = getDayDataWithWeek(dateKey);
-    return result?.dayPlan ?? { focus: '', todos: [], notes: '', events: [] };
+    return result?.dayPlan ?? createEmptyDailyPlan();
   }, [getDayDataWithWeek]);
 
   // Update a day's plan within its parent week
   const updateDayPlan = useCallback((dayDate: Date, dateKey: string, updater: (plan: DailyPlan) => DailyPlan) => {
     const week = getOrCreateWeek(dayDate, allWeeks);
-    const currentPlan = week.dailyPlans[dateKey] ?? { focus: '', todos: [], notes: '', events: [] };
+    const currentPlan = week.dailyPlans[dateKey] ?? createEmptyDailyPlan();
     const updatedPlan = updater(currentPlan);
     const updatedWeek: WeekData = {
       ...week,

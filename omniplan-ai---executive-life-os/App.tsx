@@ -9,7 +9,7 @@ import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
 import { AlertDialog } from './components/Dialog';
 import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit, NotificationSettings } from './types';
-import { getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
+import { createEmptyDailyPlan, getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
 import { saveGoalItems } from './utils/goalManager';
 import { initAICredentials, migrateCredentials, runMobileSecureMigration } from './services/storage/secureSettings';
@@ -183,17 +183,24 @@ export default function App() {
     setActiveTab(Tab.Weekly);
   }, []);
 
+  const addEventToWeek = useCallback((date: Date, event: CalendarEvent, sourceWeeks: Record<string, WeekData>) => {
+    const week = getOrCreateWeek(date, sourceWeeks);
+    const dateKey = formatDateKey(date);
+    const dayPlan = week.dailyPlans[dateKey] ?? createEmptyDailyPlan();
+    return {
+      ...week,
+      dailyPlans: {
+        ...week.dailyPlans,
+        [dateKey]: { ...dayPlan, events: [...dayPlan.events, event] },
+      },
+      updatedAt: Date.now(),
+    };
+  }, []);
+
   // Add calendar event from email
   const addEventFromEmail = useCallback((date: Date, event: CalendarEvent) => {
-    const week = getOrCreateWeek(date, allWeeks);
-    const dateKey = formatDateKey(date);
-    const dayPlan = week.dailyPlans[dateKey] || { focus: '', todos: [], notes: '', events: [] };
-    const updatedWeek = {
-      ...week,
-      dailyPlans: { ...week.dailyPlans, [dateKey]: { ...dayPlan, events: [...dayPlan.events, event] } }
-    };
-    updateWeekForDate(date, updatedWeek);
-  }, [allWeeks, updateWeekForDate]);
+    updateWeekForDate(date, addEventToWeek(date, event, allWeeks));
+  }, [addEventToWeek, allWeeks, updateWeekForDate]);
 
   // Import multiple events from an ICS file
   const importIcsEvents = useCallback((events: { date: Date; event: CalendarEvent }[]) => {
@@ -201,21 +208,11 @@ export default function App() {
       const updated = { ...prev };
       for (const { date, event } of events) {
         const weekKey = getWeekStorageKey(date);
-        const week = updated[weekKey] || getOrCreateWeek(date, prev);
-        const dateKey = formatDateKey(date);
-        const dayPlan = week.dailyPlans[dateKey] || { focus: '', todos: [], notes: '', events: [] };
-        updated[weekKey] = {
-          ...week,
-          dailyPlans: {
-            ...week.dailyPlans,
-            [dateKey]: { ...dayPlan, events: [...dayPlan.events, event] },
-          },
-          updatedAt: Date.now(),
-        };
+        updated[weekKey] = addEventToWeek(date, event, updated[weekKey] ? updated : prev);
       }
       return updated;
     });
-  }, []);
+  }, [addEventToWeek]);
 
   // Add a habit to current week AND all existing future weeks
   const addHabitGlobally = useCallback((newHabit: Habit) => {

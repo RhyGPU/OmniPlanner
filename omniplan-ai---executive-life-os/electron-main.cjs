@@ -1,9 +1,33 @@
-const { app, BrowserWindow, ipcMain, shell, net, safeStorage } = require('electron');
+﻿const { app, BrowserWindow, ipcMain, shell, net, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+app.setName('OmniPlanner');
+app.disableHardwareAcceleration();
+
+const localAppData = process.env.LOCALAPPDATA || app.getPath('appData');
+const userDataDir = path.join(localAppData, 'OmniPlanner');
+fs.mkdirSync(userDataDir, { recursive: true });
+app.setPath('userData', userDataDir);
+app.setPath('cache', path.join(userDataDir, 'Cache'));
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+let mainWindow = null;
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
 // ---------------------------------------------------------------------------
-// Credential store — backed by Electron safeStorage (OS keychain encryption).
+// Credential store ??backed by Electron safeStorage (OS keychain encryption).
 // Encrypted blobs are persisted to a file in the app's userData directory.
 //
 // SECURITY MODEL:
@@ -83,7 +107,7 @@ function classifyImapError(error) {
   if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'EHOSTUNREACH') return 'EMAIL_NETWORK_TIMEOUT';
   if (msg.includes('certificate') || msg.includes('ssl') || msg.includes('tls handshake')) return 'EMAIL_TLS_HANDSHAKE_FAILED';
 
-  // Authentication — order matters: app password hint before generic auth fail
+  // Authentication ??order matters: app password hint before generic auth fail
   if (msg.includes('app-specific password') || msg.includes('application-specific')) return 'EMAIL_APP_PASSWORD_REQUIRED';
   if (msg.includes('imap access disabled') || msg.includes('imap is disabled')) return 'EMAIL_IMAP_DISABLED';
   if (msg.includes('authenticationfailed') || msg.includes('[authorizationfailed]') || msg.includes('auth failed')) return 'EMAIL_AUTH_FAILED';
@@ -100,36 +124,6 @@ function classifyImapError(error) {
 function makeOpId(prefix) {
   return `${prefix}-${Date.now().toString(36)}`;
 }
-
-// ─── Windows: relaunch with admin elevation if not already elevated ───────────
-// Must run before app.whenReady(). AI and email both need network access that
-// Windows Firewall grants to admin processes on first run.
-if (process.platform === 'win32') {
-  const { execSync, spawn } = require('child_process');
-  let isAdmin = false;
-  try {
-    execSync('net session', { stdio: 'pipe' });
-    isAdmin = true;
-  } catch {}
-
-  if (!isAdmin) {
-    // Escape paths for PowerShell string embedding
-    const execPath = process.execPath.replace(/\\/g, '/').replace(/'/g, "''");
-    const rawArgs = process.argv.slice(1);
-    const argList = rawArgs.length > 0
-      ? `-ArgumentList @(${rawArgs.map(a => `'${a.replace(/'/g, "''")}'`).join(',')})`
-      : '';
-
-    spawn('powershell.exe', [
-      '-NoProfile', '-WindowStyle', 'Hidden',
-      '-Command',
-      `Start-Process -FilePath '${execPath}' ${argList} -Verb RunAs`,
-    ], { detached: true, stdio: 'ignore' }).unref();
-
-    app.exit(0); // close this non-elevated instance immediately
-  }
-}
-// ─────────────────────────────────────────────────────────────────────────────
 
 // Polyfill diagnostics_channel.tracingChannel for Electron's Node 18.x
 // (pino, used by imapflow, requires this Node 19.9+ API)
@@ -166,7 +160,7 @@ try {
     };
   }
 } catch (_) {
-  // diagnostics_channel unavailable — email fetch will still fail gracefully
+  // diagnostics_channel unavailable ??email fetch will still fail gracefully
 }
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
@@ -180,12 +174,19 @@ const IMAP_HOSTS = {
 };
 
 function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusMainWindow();
+    return mainWindow;
+  }
+
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: 'OmniPlan AI',
+    title: 'OmniPlanner',
+    show: false,
+    backgroundColor: '#f8fafc',
     icon: path.join(__dirname, 'dist', 'favicon.ico'),
     webPreferences: {
       contextIsolation: true,
@@ -195,7 +196,8 @@ function createWindow() {
     },
   });
 
-  // Remove the default menu bar
+  mainWindow = win;
+
   win.setMenuBarVisibility(false);
 
   // Allow renderer fetch() to reach external AI and IMAP APIs.
@@ -219,14 +221,44 @@ function createWindow() {
     win.loadFile(indexPath);
   }
 
-  // Restore keyboard focus to the renderer after any OS-level interaction
-  // (e.g. a UAC prompt or system notification briefly stealing focus).
+  win.once('ready-to-show', () => {
+    focusMainWindow();
+  });
+
+  win.webContents.once('did-finish-load', () => {
+    win.setTitle('OmniPlanner');
+    focusMainWindow();
+  });
+
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[OmniPlanner] Failed to load ${validatedURL}: ${errorCode} ${errorDescription}`);
+    focusMainWindow();
+  });
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[OmniPlanner] Renderer process stopped:', details);
+  });
+
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level >= 2) {
+      console.error(`[renderer] ${sourceId}:${line} ${message}`);
+    }
+  });
+
   win.on('focus', () => {
     win.webContents.focus();
   });
+
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
+
+  return win;
 }
 
 app.whenReady().then(createWindow);
+
+app.on('second-instance', focusMainWindow);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
@@ -286,7 +318,7 @@ ipcMain.on('open-external', (_event, url) => {
   }
 });
 
-// Credential management IPC — renderer calls these to read/write safeStorage.
+// Credential management IPC ??renderer calls these to read/write safeStorage.
 // Passwords stored here never transit IPC again after save: email handlers
 // call getCredential() directly from the main process.
 ipcMain.handle('keychain:is-available', () => safeStorage.isEncryptionAvailable());
@@ -294,7 +326,7 @@ ipcMain.handle('keychain:set', (_event, key, value) => setCredential(key, value)
 ipcMain.handle('keychain:get', (_event, key) => getCredential(key));
 ipcMain.handle('keychain:delete', (_event, key) => { deleteCredential(key); });
 
-// One-shot connection test — accepts credentials inline for the pre-save test
+// One-shot connection test ??accepts credentials inline for the pre-save test
 // flow. Does NOT store credentials; caller is responsible for calling
 // keychain:set afterwards if the test passes.
 ipcMain.handle('email:test-connection', async (_event, { email, password, provider, imapHost, imapPort }) => {
