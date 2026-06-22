@@ -70,8 +70,8 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('runMigrations — version gating', () => {
-  it('skips all migrations when already at CURRENT_SCHEMA_VERSION (3)', () => {
-    mockStore[LOCAL_STORAGE_KEYS.SCHEMA_VERSION] = 3;
+  it('skips all migrations when already at CURRENT_SCHEMA_VERSION (4)', () => {
+    mockStore[LOCAL_STORAGE_KEYS.SCHEMA_VERSION] = 4;
     runMigrations();
     // set() should not be called if all migrations are skipped
     expect(mockSet).not.toHaveBeenCalled();
@@ -81,21 +81,21 @@ describe('runMigrations — version gating', () => {
     // No schema version in store → starts at 0
     // No data to migrate, so the only set() calls are the version bumps
     runMigrations();
-    // Should have written schema version 1, 2, 3
+    // Should have written schema version 1, 2, 3, 4
     const versionCalls = mockSet.mock.calls
       .filter(([k]) => k === LOCAL_STORAGE_KEYS.SCHEMA_VERSION)
       .map(([, v]) => v);
-    expect(versionCalls).toEqual([1, 2, 3]);
+    expect(versionCalls).toEqual([1, 2, 3, 4]);
   });
 
   it('runs only pending migrations when partially applied', () => {
     mockStore[LOCAL_STORAGE_KEYS.SCHEMA_VERSION] = 2;
     runMigrations();
-    // Only version 3 should be written
+    // Only versions 3 and 4 should be written
     const versionCalls = mockSet.mock.calls
       .filter(([k]) => k === LOCAL_STORAGE_KEYS.SCHEMA_VERSION)
       .map(([, v]) => v);
-    expect(versionCalls).toEqual([3]);
+    expect(versionCalls).toEqual([3, 4]);
   });
 });
 

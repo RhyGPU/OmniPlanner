@@ -19,4 +19,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   credentialSet: (key, value) => ipcRenderer.invoke('keychain:set', key, value),
   credentialGet: (key) => ipcRenderer.invoke('keychain:get', key),
   credentialDelete: (key) => ipcRenderer.invoke('keychain:delete', key),
+  // Auto-backup
+  getBackupDir: () => ipcRenderer.invoke('get-backup-dir'),
+  triggerManualBackup: () => ipcRenderer.invoke('trigger-manual-backup'),
+  // Update check
+  checkUpdateStatus: () => ipcRenderer.invoke('check-update-status'),
 });

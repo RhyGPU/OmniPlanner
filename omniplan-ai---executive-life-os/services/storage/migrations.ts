@@ -15,7 +15,7 @@ import { storage, LOCAL_STORAGE_KEYS } from './index';
 import type { WeekData, LifeGoals, GoalItem } from '../../types';
 
 /** The version this build expects storage to be at. Increment when adding migrations. */
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 interface Migration {
   version: number;
@@ -263,6 +263,15 @@ const MIGRATIONS: Migration[] = [
     version: 3,
     description: 'Normalise all Todo.id and CalendarEvent.id values from number to string',
     run: normaliseIdsToStrings,
+  },
+  {
+    version: 4,
+    description: 'Phase 2: Add scheduledDateKey/scheduledHour/scheduledDuration/isSleepEvent fields to Todos. Backward-compatible: existing todos just omit these fields.',
+    run: (): void => {
+      // No-op migration — new fields are optional and default to undefined.
+      // Existing todos automatically get the new schema on next write.
+      // CalendarEvent.linkedTodoId still works as before.
+    },
   },
 ];
 

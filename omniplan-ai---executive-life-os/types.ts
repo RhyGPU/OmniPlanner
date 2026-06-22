@@ -5,6 +5,16 @@ export interface Todo {
   done: boolean;
   /** Phase 2: optional link to a GoalItem.id. Picker UI in Phase 3. */
   parentGoalId?: string;
+  /** Phase 2: when set, this todo is scheduled and appears on the calendar.
+   *  Format: "YYYY-MM-DD" date key. */
+  scheduledDateKey?: string;
+  /** Phase 2: decimal hour when scheduled (e.g. 14.5 = 2:30 PM).
+   *  Only meaningful when scheduledDateKey is set. */
+  scheduledHour?: number;
+  /** Phase 2: duration in hours when scheduled (default 1). */
+  scheduledDuration?: number;
+  /** Phase 2: mark as a sleep event for auto-alarm rules. */
+  isSleepEvent?: boolean;
 }
 
 export type GoalTimeframe = 'ten_year' | 'five_year' | 'three_year' | 'one_year' | 'monthly' | 'weekly';
@@ -65,6 +75,63 @@ export interface CalendarEvent {
   parentGoalId?: string;
   /** Link to a specific Todo.id — this block is scheduled time for that task. */
   linkedTodoId?: string;
+  /** Dashboard priority: 1-5 stars. Higher = more important. Manual override always wins. */
+  priority?: 1 | 2 | 3 | 4 | 5;
+}
+
+/** Actual event log — created when user taps "Event Start/Skip" or AI detects attendance */
+export interface ActualEventLog {
+  id: string;
+  plannedEventId?: string;
+  title: string;
+  dateKey: string;
+  scheduledHour: number;
+  actualStartHour?: number;
+  actualEndHour?: number;
+  source: 'manual' | 'notification' | 'ai';
+  attended: boolean;
+  snoozedCount: number;
+  notes?: string;
+  loggedAt: number; // timestamp
+}
+
+/** Dashboard data — computed for the main screen */
+export interface DashboardData {
+  today: string; // dateKey
+  upcomingEvents: DashboardEvent[];
+  habitsDue: DashboardHabit[];
+  recentEmails: DashboardEmail[];
+  topTodos: DashboardTodo[];
+}
+
+export interface DashboardEvent {
+  event: CalendarEvent;
+  dateKey: string;
+  dayOffset: number; // 0=today, 1=tomorrow, etc.
+  actual?: ActualEventLog;
+  isSleep: boolean;
+  alarmRules: string[];
+}
+
+export interface DashboardHabit {
+  habit: Habit;
+  completedToday: boolean;
+  streak: number;
+  dueBy?: string; // HH:MM
+}
+
+export interface DashboardEmail {
+  email: Email;
+  hasActionableEvent: boolean;
+  suggestedTitle?: string;
+  suggestedDate?: string;
+  suggestedHour?: number;
+}
+
+export interface DashboardTodo {
+  todo: Todo;
+  score: number; // computed: priority * urgency. Higher = show first.
+  source: 'weekly' | 'daily' | 'habit-linked';
 }
 
 export interface LifeGoals {
@@ -90,6 +157,41 @@ export interface DailyPlan {
   todos: Todo[];
   notes: string;
   events: CalendarEvent[];
+  /** Phase 2: what actually happened today. Logged after the fact. */
+  actuals?: DailyActuals;
+}
+
+/** Phase 2: actuals — what really happened today */
+export interface DailyActuals {
+  /** Events that actually occurred (attended, happened). Subset of planned events + any unplanned ones. */
+  events: ActualEvent[];
+  /** Habit completions — overrides planned habit tracking for the day */
+  habits: Record<string, boolean>; // habitId → completed
+  /** Sleep log */
+  sleep?: {
+    bedtime: string; // HH:MM format
+    wakeTime: string; // HH:MM format
+    quality: 1 | 2 | 3 | 4 | 5;
+    notes?: string;
+  };
+  /** Free-form daily journal */
+  journal?: string;
+  /** Energy/mood self-rating */
+  energy?: 1 | 2 | 3 | 4 | 5;
+  mood?: 1 | 2 | 3 | 4 | 5;
+}
+
+export interface ActualEvent {
+  id: string;
+  title: string;
+  startHour: number;
+  duration: number;
+  /** If this was planned, link back to the planned event */
+  plannedEventId?: string;
+  /** If unplanned, note the source (e.g., "calendar", "manual", "email") */
+  source?: string;
+  attended: boolean;
+  notes?: string;
 }
 
 export interface WeeklyGoals {
@@ -131,6 +233,8 @@ export interface EmailAccount {
 }
 
 export enum Tab {
+  Dashboard = 'dashboard',
+  Alarms = 'alarms',
   Inbox = 'email',
   Monthly = 'monthly',
   Weekly = 'weekly',

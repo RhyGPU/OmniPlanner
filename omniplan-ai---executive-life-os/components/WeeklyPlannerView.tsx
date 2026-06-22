@@ -15,6 +15,7 @@ import { ConfirmDialog } from './Dialog';
 import { CalendarEventEditor, EventEditorState } from './CalendarEventEditor';
 import { predictMainEvent } from '../services/ai';
 import { getAIReadiness } from '../services/ai/readiness';
+import { WeekReview } from './WeekReview';
 import {
   getUnscheduledWeeklyLinkedTodos,
   getUnscheduledLinkedTaskCountsByDay,
@@ -844,6 +845,9 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                 </div>
             </div>
         )}
+
+        {/* Week Review — Plan vs Actual */}
+        <WeekReview weekData={currentWeek} />
       </div>
     </div>
   );

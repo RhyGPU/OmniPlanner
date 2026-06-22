@@ -38,6 +38,12 @@ import {
 } from './notificationScheduler';
 import { platform } from '../services/platform';
 import type { PlannedNotification } from '../services/platform';
+import { deriveAlarmsForDay } from './alarmRules';
+
+// ---------------------------------------------------------------------------
+// Alarm ID namespace — IDs 2000-2999 reserved for event-derived alarms
+// ---------------------------------------------------------------------------
+const ALARM_ID_BASE = 2000;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -64,11 +70,12 @@ export async function syncReminders(
     return;
   }
 
-  // Run all three reminder tracks in parallel for speed.
+  // Run all reminder tracks in parallel for speed.
   await Promise.all([
     _syncDailyPlannerReminder(settings),
     _syncHabitReminder(settings, currentWeek),
     _syncFocusBlockReminder(settings, currentWeek, today),
+    _syncEventDerivedAlarms(settings, currentWeek, today),
   ]);
 }
 
@@ -190,4 +197,50 @@ function _formatDateKey(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+// ---------------------------------------------------------------------------
+// Track: event-derived alarms (Phase 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive alarms from today's calendar events using the alarm rules engine
+ * and schedule them as native notifications.
+ *
+ * This is what makes the calendar the source of truth for alarms:
+ *   - Sleep event at 11pm → auto wind-down alarm at 10pm
+ *   - Meeting at 2pm → auto prep alarm at 1:30pm
+ *   - Focus block → auto start reminder 5min before
+ */
+async function _syncEventDerivedAlarms(
+  settings: NotificationSettings,
+  currentWeek: WeekData,
+  today: Date,
+): Promise<void> {
+  if (!platform.notifications.isAvailable()) return;
+  if (!settings.enabled) return;
+
+  const dateKey = _formatDateKey(today);
+  const dayPlan = currentWeek.dailyPlans?.[dateKey];
+  if (!dayPlan) return;
+
+  const events = dayPlan.events ?? [];
+  if (events.length === 0) return;
+
+  // Derive alarms from today's events
+  const alarms = deriveAlarmsForDay(today, events);
+
+  // Schedule each alarm as a native notification
+  // Use deterministic IDs so re-scheduling is idempotent
+  for (let i = 0; i < alarms.length; i++) {
+    const alarm = alarms[i];
+    if (alarm.scheduledAt.getTime() <= Date.now()) continue;
+
+    await platform.notifications.schedule({
+      id: ALARM_ID_BASE + i,
+      title: alarm.title,
+      body: alarm.body,
+      scheduledAt: alarm.scheduledAt,
+    });
+  }
 }

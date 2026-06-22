@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { EmailView } from './components/EmailView';
@@ -7,8 +7,11 @@ import { MonthlyView } from './components/MonthlyView';
 import { WeeklyPlannerView } from './components/WeeklyPlannerView';
 import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
+import { DashboardView } from './components/DashboardView';
+import { AlarmsView } from './components/AlarmsView';
 import { AlertDialog } from './components/Dialog';
-import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit, NotificationSettings } from './types';
+import { UndoToast } from './components/UndoToast';
+import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit, NotificationSettings, ActualEventLog } from './types';
 import { createEmptyDailyPlan, getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
 import { saveGoalItems } from './utils/goalManager';
@@ -26,10 +29,141 @@ const INITIAL_EMAILS: Email[] = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>(Tab.Weekly);
+  const [activeTab, setActiveTab] = useState<Tab>(Tab.Dashboard);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [aiLoading, setAiLoading] = useState(false);
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
+
+  // Undo toast state
+  const [undoToast, setUndoToast] = useState<{
+    message: string;
+    onUndo: () => void;
+  } | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const showUndoToast = useCallback((message: string, onUndo: () => void) => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoToast({ message, onUndo });
+    undoTimerRef.current = setTimeout(() => setUndoToast(null), 5000);
+  }, []);
+  const dismissUndoToast = useCallback(() => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoToast(null);
+  }, []);
+
+  // Log an actual event (from Dashboard "Start"/"Skip"/"Done" buttons)
+  const handleLogActual = useCallback((log: ActualEventLog) => {
+    const logDate = new Date(log.dateKey + 'T00:00:00');
+    const logWeekDays = getWeekDays(logDate);
+    const logWeekStart = formatDateKey(logWeekDays[0]);
+
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      let week = updated[logWeekStart];
+      if (!week) return prev;
+
+      if (!week.dailyPlans[log.dateKey]) {
+        week.dailyPlans[log.dateKey] = { todos: [], notes: '', events: [] };
+      }
+      const dayPlan = week.dailyPlans[log.dateKey];
+      if (!dayPlan.actuals) {
+        dayPlan.actuals = { events: [], habits: {} };
+      }
+
+      const existingIdx = dayPlan.actuals.events.findIndex(
+        (a: ActualEventLog) => a.plannedEventId === log.plannedEventId && a.dateKey === log.dateKey
+      );
+      if (existingIdx >= 0) {
+        dayPlan.actuals.events[existingIdx] = log;
+      } else {
+        dayPlan.actuals.events.push(log);
+      }
+
+      updated[logWeekStart] = { ...week };
+      return updated;
+    });
+  }, []);
+
+  // Toggle habit completion from Dashboard
+  const handleCompleteHabit = useCallback((habitId: string) => {
+    const dateKey = formatDateKey(new Date());
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      const weekDates = getWeekDays(currentDate);
+      const weekStart = formatDateKey(weekDates[0]);
+      const week = updated[weekStart];
+      if (!week) return prev;
+
+      const habit = week.habits.find(h => h.id === habitId);
+      if (!habit) return prev;
+
+      const wasCompleted = habit.completions[dateKey];
+      habit.completions = { ...habit.completions, [dateKey]: !wasCompleted };
+      habit.lastUsedAt = Date.now();
+
+      if (!week.dailyPlans[dateKey]) {
+        week.dailyPlans[dateKey] = { todos: [], notes: '', events: [] };
+      }
+      const dayPlan = week.dailyPlans[dateKey];
+      if (!dayPlan.actuals) {
+        dayPlan.actuals = { events: [], habits: {} };
+      }
+      dayPlan.actuals.habits[habitId] = !wasCompleted;
+
+      updated[weekStart] = { ...week };
+      return updated;
+    });
+  }, [currentDate]);
+
+  // Toggle todo completion from Dashboard
+  const handleDashboardToggleTodo = useCallback((dateKey: string, todoId: string) => {
+    const date = new Date(dateKey + 'T00:00:00');
+    const weekDates = getWeekDays(date);
+    const weekStart = formatDateKey(weekDates[0]);
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      const week = updated[weekStart];
+      if (!week) return prev;
+      const dayPlan = week.dailyPlans?.[dateKey];
+      if (!dayPlan) return prev;
+      dayPlan.todos = dayPlan.todos.map(t =>
+        t.id === todoId ? { ...t, done: !t.done } : t
+      );
+      updated[weekStart] = { ...week };
+      return updated;
+    });
+  }, []);
+
+  // Add new todo from Dashboard (to today)
+  const handleDashboardAddTodo = useCallback((todo: Todo, dateKey: string) => {
+    const date = new Date(dateKey + 'T00:00:00');
+    const weekDates = getWeekDays(date);
+    const weekStart = formatDateKey(weekDates[0]);
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      const week = updated[weekStart] || currentWeek;
+      if (!week.dailyPlans[dateKey]) {
+        week.dailyPlans[dateKey] = { todos: [], notes: '', events: [] };
+      }
+      week.dailyPlans[dateKey].todos.push(todo);
+      updated[weekStart] = { ...week };
+      return updated;
+    });
+  }, [currentWeek]);
+
+  // Add new habit from Dashboard
+  const handleDashboardAddHabit = useCallback((habit: Habit) => {
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      const weekDates = getWeekDays(currentDate);
+      const weekStart = formatDateKey(weekDates[0]);
+      const week = updated[weekStart];
+      if (!week) return prev;
+      week.habits.push(habit);
+      updated[weekStart] = { ...week };
+      return updated;
+    });
+  }, [currentDate]);
 
   // Storage health — read once at mount (set synchronously during startup before render)
   const [storageStatus] = useState<StorageStatus>(() => getStorageStatus());
@@ -243,9 +377,11 @@ export default function App() {
   }, [currentDate]);
 
   // Delete a habit from the current week AND all future weeks (preserves past records)
-  const deleteHabitGlobally = useCallback((habitId: string) => {
+  const deleteHabitGlobally = useCallback((habitId: string, habitName?: string) => {
     const now = Date.now();
     const currentWeekKey = getWeekStorageKey(currentDate);
+    // Capture habit name from current week for the toast
+    const name = habitName || currentWeek.habits?.find(h => h.id === habitId)?.name || 'Habit';
     setAllWeeks(prev => {
       const updated = { ...prev };
       for (const weekKey of Object.keys(updated)) {
@@ -264,7 +400,27 @@ export default function App() {
       }
       return updated;
     });
-  }, [currentDate]);
+    // Show undo toast
+    showUndoToast(`${name} deleted`, () => {
+      setAllWeeks(prev => {
+        const updated = { ...prev };
+        for (const weekKey of Object.keys(updated)) {
+          if (weekKey < currentWeekKey) continue;
+          const week = updated[weekKey];
+          if (week.habits?.some(h => h.id === habitId)) {
+            updated[weekKey] = {
+              ...week,
+              habits: week.habits.map(h =>
+                h.id === habitId ? { ...h, deletedAt: undefined } : h
+              ),
+              updatedAt: Date.now(),
+            };
+          }
+        }
+        return updated;
+      });
+    });
+  }, [currentDate, currentWeek.habits, showUndoToast]);
 
   const handleSaveData = useCallback(() => {
     downloadBackup();
@@ -311,6 +467,21 @@ export default function App() {
     }
   };
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      // Ctrl+S: save/export backup
+      if (ctrl && e.key === 's') {
+        e.preventDefault();
+        handleSaveData();
+      }
+      // Undo toast: Undo button handles Enter, Escape handles dismiss — done in UndoToast
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleSaveData]);
+
   const zoomStyle = useMemo(() => ({
     transform: `scale(${currentZoom})`,
     transformOrigin: 'top left',
@@ -353,6 +524,28 @@ export default function App() {
         <div className="flex-1 bg-white rounded-3xl shadow-2xl shadow-slate-200/40 border border-slate-200 relative overflow-auto">
           {showWelcome && <WelcomeCard onDismiss={handleDismissWelcome} />}
           <div style={zoomStyle}>
+            {activeTab === Tab.Dashboard && (
+              <DashboardView
+                today={currentDate}
+                currentWeek={currentWeek}
+                allWeeks={allWeeks}
+                emails={emails}
+                onLogActual={handleLogActual}
+                onCompleteHabit={handleCompleteHabit}
+                onToggleTodo={handleDashboardToggleTodo}
+                onSetPriority={() => {}}
+                onNavigateToWeek={navigateToWeeklyView}
+                onAddTodo={handleDashboardAddTodo}
+                onAddHabit={handleDashboardAddHabit}
+              />
+            )}
+            {activeTab === Tab.Alarms && (
+              <AlarmsView
+                notificationSettings={notificationSettings}
+                onNotificationSettingsChange={handleNotificationSettingsChange}
+                currentWeek={currentWeek}
+              />
+            )}
             {activeTab === Tab.Inbox && <EmailView emails={emails} setEmails={setEmails} allWeeks={allWeeks} onAddEvent={addEventFromEmail} />}
             {activeTab === Tab.Monthly && (
               <MonthlyView
@@ -397,6 +590,14 @@ export default function App() {
           <Loader2 size={20} className="animate-spin text-blue-400"/>
           <span className="text-sm font-black tracking-wide uppercase">Gemini Optimizing Horizon...</span>
         </div>
+      )}
+
+      {undoToast && (
+        <UndoToast
+          message={undoToast.message}
+          onUndo={undoToast.onUndo}
+          onDismiss={dismissUndoToast}
+        />
       )}
     </div>
   );

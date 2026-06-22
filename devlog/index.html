@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OmniPlanner Dev Log</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Georgia', 'Times New Roman', serif;
+      background: #0a0a0f;
+      color: #c8c8c8;
+      line-height: 1.7;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 60px 24px 120px;
+    }
+    h1 {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 1.8rem;
+      font-weight: 900;
+      color: #fff;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+    h2 {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      margin-bottom: 60px;
+    }
+    .phase {
+      margin-bottom: 48px;
+      padding-bottom: 48px;
+      border-bottom: 1px solid #1a1a24;
+    }
+    .phase:last-child { border-bottom: none; }
+    .phase-label {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      margin-bottom: 12px;
+    }
+    .phase-title {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 16px;
+      letter-spacing: -0.01em;
+    }
+    .phase-date {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 0.7rem;
+      color: #555;
+      margin-bottom: 20px;
+    }
+    .phase-body p {
+      margin-bottom: 16px;
+      font-size: 0.95rem;
+    }
+    .phase-body blockquote {
+      border-left: 3px solid #333;
+      padding-left: 16px;
+      margin: 20px 0;
+      color: #999;
+      font-style: italic;
+    }
+    .phase-body code {
+      background: #141420;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.85em;
+      color: #7ec8e3;
+    }
+    .phase-body ul {
+      margin: 16px 0 16px 20px;
+    }
+    .phase-body li {
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+    }
+    .tag {
+      display: inline-block;
+      background: #141420;
+      border: 1px solid #222;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #666;
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+    .tag.major { border-color: #334; color: #8ab4f8; }
+    .tag.arch { border-color: #433; color: #c8a2c8; }
+    .tag.feat { border-color: #343; color: #7ec8a0; }
+    .tag.fix { border-color: #433; color: #e8a0a0; }
+    .tag.phase { border-color: #334; color: #e8c870; }
+    .back {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 0.8rem;
+      color: #555;
+      text-decoration: none;
+      display: inline-block;
+      margin-bottom: 40px;
+    }
+    .back:hover { color: #888; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 60px;
+      padding: 24px;
+      background: #0e0e16;
+      border: 1px solid #1a1a24;
+      border-radius: 12px;
+    }
+    .stat {
+      text-align: center;
+    }
+    .stat-num {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 1.8rem;
+      font-weight: 900;
+      color: #fff;
+    }
+    .stat-label {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: #555;
+      margin-top: 4px;
+    }
+    a { color: #8ab4f8; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <a href="https://rhygpu-dev.pages.dev/" class="back">← Back to RhyGPU</a>
+  <h1>OmniPlanner</h1>
+  <h2>Dev Log · Feb 2026 – Present</h2>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-num">70</div>
+      <div class="stat-label">Commits</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">22</div>
+      <div class="stat-label">Phases</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">~11K</div>
+      <div class="stat-label">Lines</div>
+    </div>
+  </div>
+
+  <!-- Phase 0-1: Foundation -->
+  <div class="phase">
+    <div class="phase-label">Phase 0–1 · Feb 25, 2026</div>
+    <div class="phase-title">The Repository Exists</div>
+    <div class="phase-date">Late February · From web app to Electron desktop</div>
+    <div class="phase-body">
+      <p>Before the repository, OmniPlanner was a web-based weekly planner living inside Vite + React. The idea was simple: a week-isolated planning workspace where each week is its own page with goals, todos, habits, and calendar blocks.</p>
+      <p>Then it became an Electron desktop app.</p>
+      <p>The conversion was messy but fast. Tauri was considered. Electron won for speed of iteration. The first commits added <code>electron-main.cjs</code>, <code>preload.cjs</code>, <code>run.js</code> launcher, and a <code>package.json</code> with electron-builder config targeting Windows NSIS, macOS DMG, and Linux AppImage.</p>
+      <p>This is where <code>omniplan-ai---executive-life-os/</code> became the app directory and the project stopped being a disposable web experiment.</p>
+      <p>The first AI provider (Gemini) was wired in the same day. Dead code was removed. The first GitHub Actions CI workflow built executables automatically.</p>
+      <div style="margin-top:16px">
+        <span class="tag major">Foundation</span>
+        <span class="tag feat">Electron Desktop</span>
+        <span class="tag feat">Gemini AI</span>
+        <span class="tag feat">CI/CD</span>
+        <span class="tag fix">Build Fixes</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 2-3: Goals & Architecture -->
+  <div class="phase">
+    <div class="phase-label">Phase 2–3 · Feb 26 – Mar 18, 2026</div>
+    <div class="phase-title">Life Goals Go Domain</div>
+    <div class="phase-date">Late February · GoalItem migration and week-isolated architecture</div>
+    <div class="phase-body">
+      <p>The core data model was taking shape. Week-isolated planning — the idea that each week is an indestructible page that doesn't bleed into adjacent weeks — was the architectural bet.</p>
+      <p><strong>Phase 2</strong> introduced the <code>GoalItem</code> domain model: structured life goals (10-year, 5-year, 3-year, 1-year, monthly, weekly) that link to weekly execution via <code>Todo.parentGoalId</code>. The <code>LifeGoals</code> text blobs were migrated into typed <code>GoalItem[]</code> records.</p>
+      <p><strong>Phase 3</strong> connected goals to weeks. Weekly goals (<code>business</code> and <code>personal</code>) could now link upward to life goals. The weekly planner sidebar showed relevant 1-year goals for the current week.</p>
+      <p>Phase 4 hardened credentials: <code>services/storage/secureSettings.ts</code> became the single boundary for sensitive keys. <code>Electron.safeStorage</code> encrypted API keys and IMAP passwords in <code>credentials.enc.json</code>.</p>
+      <div style="margin-top:16px">
+        <span class="tag arch">Domain Model</span>
+        <span class="tag feat">Goal Linking</span>
+        <span class="tag feat">Credential Encryption</span>
+        <span class="tag phase">v2.0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 5-9: Calendar, Intelligence, Mobile -->
+  <div class="phase">
+    <div class="phase-label">Phase 5–9 · Mar 19–23, 2026</div>
+    <div class="phase-title">Calendar Intelligence, Web Shell, and Mobile</div>
+    <div class="phase-date">Late March · Execution analytics, PWA, and cross-device foundations</div>
+      <div class="phase-body">
+      <p><strong>Phase 5</strong> added calendar execution: <code>CalendarEventKind</code> discriminated meetings, focus blocks, task blocks, and routines. Events could link to goals (<code>parentGoalId</code>) and todos (<code>linkedTodoId</code>).</p>
+      <p><strong>Phase 6</strong> added execution analytics: the weekly review sidebar showed focus block count, goals with calendar support, completed linked tasks, and unscheduled work.</p>
+      <p><strong>Phase 7</strong> added historical trend visibility — comparing current week against past weeks.</p>
+      <p><strong>Phase 8</strong> established the platform service boundary: <code>services/platform/</code> with <code>CredentialService</code>, <code>EmailService</code>, <code>NetworkService</code>, <code>NotificationService</code>, and <code>ShellService</code> interfaces.</p>
+      <p><strong>Phase 9</strong> added the web shell: PWA manifest, service worker, <code>IndexedDBAdapter</code> for web storage, and <code>initStorage()</code> that swaps backends transparently.</p>
+      <div style="margin-top:16px">
+        <span class="tag arch">Platform Boundary</span>
+        <span class="tag feat">PWA Support</span>
+        <span class="tag feat">Analytics</span>
+        <span class="tag feat">Calendar Types</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 10-14: Mobile, Onboarding, Polish -->
+  <div class="phase">
+    <div class="phase-label">Phase 10–14 · Mar 20, 2026</div>
+    <div class="phase-title">Mobile, Onboarding, and the First Real UI Pass</div>
+      <div class="phase-date">March 20 · Five phases in one day</div>
+      <div class="phase-body">
+      <p><strong>Phase 10:</strong> Capacitor mobile shell with <code>@capacitor/local-notifications</code> and <code>@capacitor/preferences</code>. Notifications could fire on mobile even when the app was closed.</p>
+      <p><strong>Phase 11:</strong> Native secure storage via <code>capacitor-secure-storage-plugin</code> on mobile. Reminder sync wired into the platform notification adapter. <code>syncReminders()</code> derived alarms from calendar events.</p>
+      <p><strong>Phase 12:</strong> Offline resilience and conflict-free restore. The backup system could handle legacy formats, preview before overwrite, and survive storage corruption.</p>
+      <p><strong>Phase 13:</strong> Mobile UX polish. Daily-use improvements across the board.</p>
+      <p><strong>Phase 14:</strong> Onboarding clarity. The <code>WelcomeCard</code> appeared for first-time users. <code>hasPlannerData()</code> conservatively detected existing users to skip onboarding.</p>
+      <div style="margin-top:16px">
+        <span class="tag feat">Mobile Notifications</span>
+        <span class="tag feat">Onboarding</span>
+        <span class="tag fix">Offline Resilience</span>
+        <span class="tag feat">Secure Storage</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 15-18: Polish -->
+  <div class="phase">
+    <div class="phase-label">Phase 15–18 · Mar 23, 2026</div>
+    <div class="phase-title">Polish, AI Settings, and Email Workflow</div>
+      <div class="phase-date">March 23 · Empty states, AI clarity, calendar workflows</div>
+      <div class="phase-body">
+      <p><strong>Phase 15:</strong> Empty-state guidance across planner views. Instead of blank white space, users saw "What's the main thing to advance professionally this week?" with an Add Task button.</p>
+      <p><strong>Phase 16:</strong> AI readiness gating. The "AI Optimize Week" button showed its status: disabled, missing key, or ready. Settings explained what each provider needed.</p>
+      <p><strong>Phase 17:</strong> Backup/export clarity. Two-step restore flow: preview metadata before overwriting. Users saw what they were restoring before committing.</p>
+      <p><strong>Phase 18:</strong> Calendar-email workflow polish. The email view showed calendar events inline. One-click "Create Event from Email" worked.</p>
+      <div style="margin-top:16px">
+        <span class="tag feat">UX Polish</span>
+        <span class="tag feat">AI Settings</span>
+        <span class="tag feat">Email→Calendar</span>
+        <span class="tag fix">Backup UX</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 19: Engineering Hardening -->
+  <div class="phase">
+    <div class="phase-label">Phase 19 · Mar 24, 2026</div>
+    <div class="phase-title">Engineering Hardening</div>
+    <div class="phase-date">March 24 · Typecheck, ID normalization, component extraction</div>
+      <div class="phase-body">
+      <p>The code was getting big. Phase 19 was the cleanup pass: strict typecheck passed with zero errors. All <code>Todo.id</code> and <code>CalendarEvent.id</code> values were normalized from <code>number</code> to <code>string</code>. Components were extracted and organized. The AI provider API was cleaned up.</p>
+      <p>Credential visibility was added to the settings screen — users could see which accounts had stored passwords.</p>
+      <div style="margin-top:16px">
+        <span class="tag arch">Typecheck Clean</span>
+        <span class="tag fix">ID Normalization</span>
+        <span class="tag arch">Component Extraction</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 20-22: Reminders, Email, Tests -->
+  <div class="phase">
+    <div class="phase-label">Phase 20–22 · Mar 24 – Apr 3, 2026</div>
+    <div class="phase-title">Reminders, Email Diagnostics, and Test Coverage</div>
+      <div class="phase-date">Late March – Early April</div>
+      <div class="phase-body">
+      <p><strong>Phase 20:</strong> Reminder visibility polish. Focus block reminders showed inline on calendar events. Habit reminders showed a bell icon in the habit panel.</p>
+      <p><strong>Phase 21:</strong> Test coverage and release confidence. <code>backupValidator.test.ts</code>, <code>readiness.test.ts</code>, <code>migrations.test.ts</code>, <code>onboardingState.test.ts</code>, <code>CalendarEventEditor.test.tsx</code> — 138 tests total, all passing.</p>
+      <p><strong>Phase 21-A/B/C (Email):</strong> IMAP timeout hardening, OAuth login foundation with <code>safeStorage</code>, and OAuth token lifecycle with safe refresh and re-auth.</p>
+      <p><strong>Phase 22:</strong> Email reliability and diagnostics. Every email error got a stable error code, a calm user-facing message, and an operation ID for correlating logs.</p>
+      <div style="margin-top:16px">
+        <span class="tag feat">138 Tests</span>
+        <span class="tag feat">OAuth</span>
+        <span class="tag fix">Diagnostics</span>
+        <span class="tag feat">Reminder UI</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Current work -->
+  <div class="phase">
+    <div class="phase-label">Current · May 2026</div>
+    <div class="phase-title">Dashboard, Alarms, and the Plan-vs-Actual Gap</div>
+      <div class="phase-date">May 2026 · Redesigning the main screen</div>
+      <div class="phase-body">
+      <p>The weekly planner was solid. The habits worked. The calendar connected to email. But the main screen was still a weekly grid — and nobody opens a planner to see a grid. They open it to know <em>what's next</em>.</p>
+      <p>So the main screen is now a <strong>Dashboard</strong>: today's top events ranked by priority × urgency, habits due now, recent emails, and top todos. Every event card has a <strong>Start</strong> button. Tap it when the event begins. Tap <strong>Skip</strong> when you miss it. Tap <strong>Snooze</strong> when you need 5 more minutes.</p>
+      <p>Sleep events get a special <strong>"Going to bed"</strong> button. The alarm rules engine auto-generates wind-down alarms (60 min before sleep) and wake alarms (8 hours later) from sleep events.</p>
+      <p>A new <strong>Pulse</strong> tab manages all alarms and reminders. Morning planner, habit check-in, focus block alerts — each with a toggle. Event-derived alarms show upcoming auto-generated nudges.</p>
+      <p>The plan-vs-actual overlay on the weekly grid is next: soft translucent blocks for what you planned, solid opaque blocks for what actually happened, with a per-day toggle.</p>
+      <div style="margin-top:16px">
+        <span class="tag major">Dashboard</span>
+        <span class="tag feat">Event Start/Skip/Snooze</span>
+        <span class="tag feat">Pulse Tab</span>
+        <span class="tag feat">Alarm Rules Engine</span>
+        <span class="tag feat">Sleep Tracking</span>
+        <span class="tag feat">Priority Stars</span>
+        <span class="tag fix">Undo Toast</span>
+        <span class="tag fix">Auto-backup on Exit</span>
+        <span class="tag fix">Window State Persistence</span>
+        <span class="tag fix">Auto-update Check</span>
+        <span class="tag fix">Corrupt Storage Recovery</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:80px; padding-top:40px; border-top:1px solid #1a1a24; text-align:center">
+    <p style="font-size:0.75rem; color:#444;">OmniPlanner · AGPL-3.0 · Local-first life OS</p>
+    <p style="font-size:0.65rem; color:#333; margin-top:8px;">Built by <a href="https://rhygpu-dev.pages.dev/" style="color:#555;">RhyGPU</a></p>
+  </div>
+</div>
+</body>
+</html>

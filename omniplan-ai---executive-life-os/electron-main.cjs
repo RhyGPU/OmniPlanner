@@ -46,7 +46,7 @@ function getCredentialFilePath() {
 function readCredentialStore() {
   try {
     return JSON.parse(fs.readFileSync(getCredentialFilePath(), 'utf-8'));
-  } catch { return {}; }
+  } catch (_) { return {}; }
 }
 
 function writeCredentialStore(store) {
@@ -65,7 +65,7 @@ function getCredential(key) {
   if (!store[key]) return null;
   try {
     return safeStorage.decryptString(Buffer.from(store[key], 'base64'));
-  } catch { return null; }
+  } catch (_) { return null; }
 }
 
 /** Encrypt and store a credential. Returns false if safeStorage is unavailable. */
@@ -77,7 +77,7 @@ function setCredential(key, value) {
     store[key] = encrypted.toString('base64');
     writeCredentialStore(store);
     return true;
-  } catch { return false; }
+  } catch (_) { return false; }
 }
 
 function deleteCredential(key) {
@@ -179,9 +179,20 @@ function createWindow() {
     return mainWindow;
   }
 
+  // Restore previous window bounds from userData
+  let bounds = {};
+  try {
+    const stateFile = path.join(app.getPath('userData'), 'window-state.json');
+    if (fs.existsSync(stateFile)) {
+      bounds = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    }
+  } catch (_) { /* ignore corrupt state */ }
+
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: bounds.width || 1400,
+    height: bounds.height || 900,
+    x: bounds.x,
+    y: bounds.y,
     minWidth: 900,
     minHeight: 600,
     title: 'OmniPlanner',
@@ -195,6 +206,20 @@ function createWindow() {
       zoomFactor: 1.0,
     },
   });
+
+  // Save window bounds on resize/move
+  const saveBounds = () => {
+    try {
+      const b = win.getBounds();
+      fs.writeFileSync(
+        path.join(app.getPath('userData'), 'window-state.json'),
+        JSON.stringify(b),
+        'utf-8'
+      );
+    } catch (_) { /* ignore */ }
+  };
+  win.on('resize', saveBounds);
+  win.on('move', saveBounds);
 
   mainWindow = win;
 
@@ -260,6 +285,46 @@ app.whenReady().then(createWindow);
 
 app.on('second-instance', focusMainWindow);
 
+app.on('before-quit', (event) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    // Trigger a synchronous screenshot of localStorage data for auto-backup
+    mainWindow.webContents.executeJavaScript(
+      `(function() {
+        try {
+          const keys = Object.keys(localStorage).filter(k => k.startsWith('omni_'));
+          const data = {};
+          for (const k of keys) { data[k] = localStorage.getItem(k); }
+          return JSON.stringify(data);
+        } catch(e) { return null; }
+      })()`,
+      true
+    ).then((result) => {
+      if (result) {
+        try {
+          const backupDir = path.join(userDataDir, 'backups');
+          fs.mkdirSync(backupDir, { recursive: true });
+          const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const backupFile = path.join(backupDir, `auto-backup-${ts}.json`);
+          const payload = JSON.stringify({ version: 'auto', exportDate: new Date().toISOString(), data: JSON.parse(result) }, null, 2);
+          fs.writeFileSync(backupFile, payload, { encoding: 'utf-8', mode: 0o600 });
+          // Purge old backups — keep last 10
+          const files = fs.readdirSync(backupDir)
+            .filter(f => f.startsWith('auto-backup-') && f.endsWith('.json'))
+            .sort()
+            .reverse();
+          for (let i = 10; i < files.length; i++) {
+            try { fs.unlinkSync(path.join(backupDir, files[i])); } catch (_) {}
+          }
+          console.log('[OmniPlanner] Auto-backup saved:', backupFile);
+        } catch (err) {
+          console.error('[OmniPlanner] Auto-backup failed:', err);
+        }
+      }
+    }).catch(() => {});
+  }
+  // Let the quit proceed — the backup is best-effort
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
@@ -268,8 +333,88 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
+// Auto-update check — compare with latest GitHub release
+async function checkForUpdates() {
+  try {
+    const https = require('https');
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    const currentVersion = pkg.version;
+
+    await new Promise((resolve) => {
+      const req = https.get(
+        'https://api.github.com/repos/RhyGPU/OmniPlanner/releases/latest',
+        { headers: { 'User-Agent': 'OmniPlanner' } },
+        (res) => {
+          let data = '';
+          res.on('data', (d) => data += d);
+          res.on('end', () => {
+            try {
+              const release = JSON.parse(data);
+              const latest = (release.tag_name || '').replace(/^v/, '');
+              if (latest && latest !== currentVersion) {
+                console.log(`[OmniPlan] Update available: v${currentVersion} → v${latest}`);
+                const updateFile = path.join(app.getPath('userData'), 'update-available.json');
+                fs.writeFileSync(updateFile, JSON.stringify({ current: currentVersion, latest, url: release.html_url || '' }), 'utf-8');
+              }
+            } catch (_) { /* ignore */ }
+            resolve();
+          });
+        }
+      );
+      req.on('error', () => resolve());
+      req.setTimeout(5000, () => { req.destroy(); resolve(); });
+    });
+  } catch (_) { /* best-effort */ }
+}
+// Check 30s after startup so it doesn't slow down launch
+setTimeout(checkForUpdates, 30000);
+
 ipcMain.on('quit-app', () => {
   app.quit();
+});
+
+// Expose the auto-backup directory path to the renderer
+ipcMain.handle('get-backup-dir', () => {
+  return path.join(userDataDir, 'backups');
+});
+
+// Manual backup trigger from renderer (menu/shortcut)
+ipcMain.handle('trigger-manual-backup', async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return { success: false, error: 'No window' };
+  try {
+    const result = await mainWindow.webContents.executeJavaScript(
+      `(function() {
+        try {
+          const keys = Object.keys(localStorage).filter(k => k.startsWith('omni_'));
+          const data = {};
+          for (const k of keys) { data[k] = localStorage.getItem(k); }
+          return JSON.stringify(data);
+        } catch(e) { return null; }
+      })()`,
+      true
+    );
+    if (!result) return { success: false, error: 'No data' };
+    const backupDir = path.join(userDataDir, 'backups');
+    fs.mkdirSync(backupDir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupFile = path.join(backupDir, `manual-backup-${ts}.json`);
+    const payload = JSON.stringify({ version: 'manual', exportDate: new Date().toISOString(), data: JSON.parse(result) }, null, 2);
+    fs.writeFileSync(backupFile, payload, { encoding: 'utf-8', mode: 0o600 });
+    return { success: true, path: backupFile };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Check if an update is available (written by checkForUpdates)
+ipcMain.handle('check-update-status', () => {
+  try {
+    const updateFile = path.join(app.getPath('userData'), 'update-available.json');
+    if (fs.existsSync(updateFile)) {
+      return JSON.parse(fs.readFileSync(updateFile, 'utf-8'));
+    }
+  } catch (_) {}
+  return null;
 });
 
 // Generic HTTPS proxy via Electron's net module.

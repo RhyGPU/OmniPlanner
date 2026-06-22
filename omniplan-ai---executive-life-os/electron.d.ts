@@ -78,6 +78,15 @@ declare global {
 
       /** Delete a stored credential. No-op if the key does not exist. */
       credentialDelete(key: string): Promise<void>;
+
+      /** Return the absolute path of the auto-backup directory (Electron only). */
+      getBackupDir(): Promise<string>;
+
+      /** Trigger a manual backup now. Returns the backup file path on success. */
+      triggerManualBackup(): Promise<{ success: boolean; path?: string; error?: string }>;
+
+      /** Check if a newer version is available on GitHub. Returns null if up-to-date. */
+      checkUpdateStatus(): Promise<{ current: string; latest: string; url: string } | null>;
     };
   }
 }

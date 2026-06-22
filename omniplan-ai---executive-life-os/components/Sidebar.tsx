@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Mail, Calendar as CalendarIcon, Clock, Target, Settings, Save, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Mail, Calendar as CalendarIcon, Clock, Target, Settings, Save, ZoomIn, ZoomOut, RotateCcw, LayoutDashboard, Bell } from 'lucide-react';
 import { Tab } from '../types';
 
 interface SidebarProps {
@@ -53,6 +53,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setAct
       </div>
 
       <nav className="flex-1 mt-4 space-y-1.5 px-3">
+        <NavButton activeTab={activeTab} setActiveTab={setActiveTab} id={Tab.Dashboard} icon={<LayoutDashboard size={20} />} label="Dashboard" />
+        <NavButton activeTab={activeTab} setActiveTab={setActiveTab} id={Tab.Alarms} icon={<Bell size={20} />} label="Pulse" />
+        <div className="pt-2 border-b border-slate-800 mx-2" />
         <NavButton activeTab={activeTab} setActiveTab={setActiveTab} id={Tab.Inbox} icon={<Mail size={20} />} label="Priority Inbox" count={emailsCount} />
         <NavButton activeTab={activeTab} setActiveTab={setActiveTab} id={Tab.Monthly} icon={<CalendarIcon size={20} />} label="Month View" />
         <NavButton activeTab={activeTab} setActiveTab={setActiveTab} id={Tab.Weekly} icon={<Clock size={20} />} label="Deep Planner" />
