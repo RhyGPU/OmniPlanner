@@ -11,14 +11,14 @@ import { DashboardView } from './components/DashboardView';
 import { AlarmsView } from './components/AlarmsView';
 import { AlertDialog } from './components/Dialog';
 import { UndoToast } from './components/UndoToast';
-import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit, NotificationSettings, ActualEventLog } from './types';
+import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit, NotificationSettings, ActualEventLog, Todo } from './types';
 import { createEmptyDailyPlan, getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
 import { downloadBackup, uploadBackup } from './utils/dataManager';
 import { saveGoalItems } from './utils/goalManager';
 import { initAICredentials, migrateCredentials, runMobileSecureMigration } from './services/storage/secureSettings';
 import { getNotificationSettings, saveNotificationSettings } from './services/storage/notificationSettings';
 import { syncReminders } from './utils/reminderSync';
-import { formatDateKey } from './constants';
+import { formatDateKey, getWeekDays } from './constants';
 import { storage, LOCAL_STORAGE_KEYS, getStorageStatus } from './services/storage';
 import type { StorageStatus } from './services/storage';
 import { getOnboardingDismissed, setOnboardingDismissed, hasPlannerData } from './services/storage/onboardingState';
@@ -50,6 +50,14 @@ export default function App() {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     setUndoToast(null);
   }, []);
+
+  // All weeks data - central source of truth
+  const [allWeeks, setAllWeeks] = useState<Record<string, WeekData>>(() => {
+    return getAllWeeks();
+  });
+
+  // Current week data (derived from allWeeks)
+  const currentWeek = getOrCreateWeek(currentDate, allWeeks);
 
   // Log an actual event (from Dashboard "Start"/"Skip"/"Done" buttons)
   const handleLogActual = useCallback((log: ActualEventLog) => {
@@ -218,14 +226,6 @@ export default function App() {
       return updated;
     });
   }, [activeTab]);
-
-  // All weeks data - central source of truth
-  const [allWeeks, setAllWeeks] = useState<Record<string, WeekData>>(() => {
-    return getAllWeeks();
-  });
-
-  // Current week data (derived from allWeeks)
-  const currentWeek = getOrCreateWeek(currentDate, allWeeks);
 
   // Persistent State Management
   const [emails, setEmails] = useState<Email[]>(

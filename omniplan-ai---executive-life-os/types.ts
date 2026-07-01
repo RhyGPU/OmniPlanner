@@ -15,6 +15,8 @@ export interface Todo {
   scheduledDuration?: number;
   /** Phase 2: mark as a sleep event for auto-alarm rules. */
   isSleepEvent?: boolean;
+  /** Dashboard priority: 1-5 stars. Higher = more important. */
+  priority?: 1 | 2 | 3 | 4 | 5;
 }
 
 export type GoalTimeframe = 'ten_year' | 'five_year' | 'three_year' | 'one_year' | 'monthly' | 'weekly';

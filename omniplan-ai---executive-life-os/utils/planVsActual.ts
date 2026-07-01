@@ -103,8 +103,10 @@ export function compareDay(
     return {
       dateKey,
       events: { planned: plan.events.length, actual: 0, attended: 0, missed: 0, unplanned: 0, details: [] },
-      habits: habits.map(h => ({ id: h.id, name: h.name, planned: true, completed: false, streak: 0 })),
-      habitCompletionRate: 0,
+      habits: {
+        habits: habits.map(h => ({ id: h.id, name: h.name, planned: true, completed: false, streak: 0 })),
+        completionRate: 0,
+      },
       sleep: { sleepDebt: 0 },
       todos: { planned: plan.todos.length, completed: 0, added: 0, completionRate: 0 },
       adherenceScore: 0,
