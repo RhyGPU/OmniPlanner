@@ -1,4 +1,4 @@
-import { storage } from '../storage';
+import { storage, LOCAL_STORAGE_KEYS } from '../storage';
 
 export interface AiUsageStats {
   callsCount: number;
@@ -7,7 +7,7 @@ export interface AiUsageStats {
   estimatedCostUsd: number;
 }
 
-const STORAGE_KEY = 'omni_ai_usage_stats';
+const STORAGE_KEY = LOCAL_STORAGE_KEYS.AI_USAGE_STATS;
 
 const TOKEN_PRICES: Record<string, { prompt: number; completion: number }> = {
   gemini: { prompt: 0.075 / 1000000, completion: 0.30 / 1000000 },

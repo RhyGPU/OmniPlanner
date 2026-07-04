@@ -96,32 +96,43 @@ export const electronShell: ShellService = {
 };
 
 // ---------------------------------------------------------------------------
-// Notification service — not implemented for Electron in Phase 10
+// Notification service — main-process alarms (v4.0)
 // ---------------------------------------------------------------------------
 //
-// Electron has its own notification APIs (Notification class + node-notifier).
-// Integrating them requires additional main-process IPC handlers not added in
-// this phase.  nullNotifications surfaces a clear unavailability signal so
-// callers (e.g. notificationScheduler) skip scheduling gracefully.
+// Scheduling is delegated to the Electron main process over IPC. Timers live
+// there so alarms fire while the window is hidden to the tray and survive
+// renderer reloads; the main process also persists them to disk and re-arms
+// on startup and wake-from-sleep. Desktop toasts need no runtime permission
+// on Windows/macOS beyond OS-level notification settings.
 
-export const nullNotifications: NotificationService = {
+export const electronNotifications: NotificationService = {
   isAvailable(): boolean {
-    return false;
+    return typeof window !== 'undefined' && !!window.electronAPI?.notificationSchedule;
   },
 
   async requestPermission(): Promise<NotificationPermission> {
-    return 'unavailable';
+    if (!this.isAvailable()) return 'unavailable';
+    const supported = await window.electronAPI!.notificationIsSupported();
+    return supported ? 'granted' : 'unavailable';
   },
 
-  async schedule(): Promise<boolean> {
-    return false;
+  async schedule(notification): Promise<boolean> {
+    if (!this.isAvailable()) return false;
+    return window.electronAPI!.notificationSchedule(
+      notification.id,
+      notification.title,
+      notification.body,
+      notification.scheduledAt.getTime(),
+    );
   },
 
-  async cancel(): Promise<void> {
-    // No-op
+  async cancel(id: number): Promise<void> {
+    if (!this.isAvailable()) return;
+    return window.electronAPI!.notificationCancel(id);
   },
 
   async cancelAll(): Promise<void> {
-    // No-op
+    if (!this.isAvailable()) return;
+    return window.electronAPI!.notificationCancelAll();
   },
 };

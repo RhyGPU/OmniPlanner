@@ -108,6 +108,29 @@ declare global {
 
       /** Get status of the active local model server process. */
       localModelStatus(): Promise<{ running: boolean; modelName: string | null }>;
+
+      /** True if the OS supports desktop notifications. */
+      notificationIsSupported(): Promise<boolean>;
+
+      /** Show a desktop notification immediately. */
+      notificationShow(title: string, body: string): Promise<boolean>;
+
+      /** Schedule a notification in the main process. Same id replaces any
+       *  existing schedule (idempotent re-sync). Survives renderer reloads
+       *  and fires while the window is hidden to the tray. */
+      notificationSchedule(id: number, title: string, body: string, scheduledAtMs: number): Promise<boolean>;
+
+      /** Cancel a scheduled notification by ID. */
+      notificationCancel(id: number): Promise<void>;
+
+      /** Cancel all scheduled notifications. */
+      notificationCancelAll(): Promise<void>;
+
+      /** True when the app is registered to launch at login. */
+      startupGet(): Promise<boolean>;
+
+      /** Enable/disable launch at login. Returns the resulting state. */
+      startupSet(enable: boolean): Promise<boolean>;
     };
   }
 }

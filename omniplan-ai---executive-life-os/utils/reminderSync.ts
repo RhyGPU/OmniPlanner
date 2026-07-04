@@ -18,7 +18,8 @@
  *     app open is harmless and keeps the schedule accurate.
  *   Web:       Best-effort setTimeout scheduling. Notifications only fire while
  *     the tab is open. Re-scheduling on each page load is necessary.
- *   Electron:  nullNotifications — all calls return false / no-op.
+ *   Electron:  Main-process timers (v4.0+). Persisted and re-armed across
+ *     restarts and sleep/wake; re-scheduling on each app open keeps them fresh.
  *
  * UPDATE / CANCEL SEMANTICS:
  *   Each notification ID is stable (from NOTIFICATION_IDS constants). To update

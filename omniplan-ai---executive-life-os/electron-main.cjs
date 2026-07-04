@@ -1,8 +1,11 @@
-const { app, BrowserWindow, ipcMain, shell, net, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, net, safeStorage, Notification, Tray, Menu, nativeImage, dialog, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 app.setName('OmniPlanner');
+// Required for Windows toast notifications to display with the app's name/icon.
+// Must match build.appId in package.json.
+app.setAppUserModelId('com.omniplan.app');
 app.disableHardwareAcceleration();
 
 const localAppData = process.env.LOCALAPPDATA || app.getPath('appData');
@@ -18,6 +21,11 @@ if (!gotSingleInstanceLock) {
 }
 
 let mainWindow = null;
+let tray = null;
+// True once the user chose Quit (tray menu / quit-app IPC / before-quit).
+// While false, closing the window hides it to the tray instead of quitting,
+// so alarms and background email checks keep running.
+let isQuitting = false;
 
 function focusMainWindow() {
   if (!mainWindow) return;
@@ -165,6 +173,206 @@ try {
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 
+// ---------------------------------------------------------------------------
+// Desktop notifications + alarm scheduling (main process)
+//
+// Timers live in the main process so alarms fire even when the window is
+// hidden to the tray or the renderer reloads. Scheduled alarms are persisted
+// to userData/scheduled-alarms.json and re-armed on startup and on wake from
+// sleep (setTimeout does not tick while the machine sleeps).
+// ---------------------------------------------------------------------------
+
+/** id → { title, body, scheduledAtMs, timer } */
+const scheduledAlarms = new Map();
+let alarmsPaused = false;
+
+const alarmsFilePath = () => path.join(app.getPath('userData'), 'scheduled-alarms.json');
+
+function persistAlarms() {
+  try {
+    const entries = [...scheduledAlarms.values()].map(({ id, title, body, scheduledAtMs }) => ({ id, title, body, scheduledAtMs }));
+    fs.writeFileSync(alarmsFilePath(), JSON.stringify(entries), { encoding: 'utf-8', mode: 0o600 });
+  } catch (err) {
+    console.error('[OmniPlan] Failed to persist alarms:', err);
+  }
+}
+
+function getNotificationIcon() {
+  for (const candidate of [path.join(__dirname, 'dist', 'icon-192.png'), path.join(__dirname, 'public', 'icon-192.png')]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function showDesktopNotification(title, body) {
+  if (!Notification.isSupported()) return false;
+  const notification = new Notification({ title, body, icon: getNotificationIcon() });
+  notification.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+    focusMainWindow();
+  });
+  notification.show();
+  return true;
+}
+
+/** Fire an alarm now (unless paused) and remove it from the schedule. */
+function fireAlarm(id) {
+  const alarm = scheduledAlarms.get(id);
+  if (!alarm) return;
+  scheduledAlarms.delete(id);
+  persistAlarms();
+  if (alarmsPaused) {
+    console.log(`[OmniPlan] Alarm ${id} suppressed (alarms paused)`);
+    return;
+  }
+  showDesktopNotification(alarm.title, alarm.body);
+}
+
+const MAX_TIMEOUT_MS = 2147483647; // setTimeout ceiling (~24.8 days)
+
+/** (Re-)arm the timer for an alarm entry. Chains for delays beyond the setTimeout ceiling. */
+function armAlarmTimer(alarm) {
+  if (alarm.timer) clearTimeout(alarm.timer);
+  const delay = alarm.scheduledAtMs - Date.now();
+  if (delay <= 0) {
+    // Missed while asleep / between sessions — fire if less than 10 minutes late,
+    // otherwise drop silently (a stale "8:00 AM" alarm at 3 PM is noise).
+    if (delay > -10 * 60 * 1000) {
+      fireAlarm(alarm.id);
+    } else {
+      scheduledAlarms.delete(alarm.id);
+      persistAlarms();
+    }
+    return;
+  }
+  alarm.timer = setTimeout(() => {
+    if (alarm.scheduledAtMs - Date.now() > 1000) {
+      armAlarmTimer(alarm); // chained long delay — re-arm for the remainder
+    } else {
+      fireAlarm(alarm.id);
+    }
+  }, Math.min(delay, MAX_TIMEOUT_MS));
+}
+
+function scheduleAlarm(id, title, body, scheduledAtMs) {
+  const existing = scheduledAlarms.get(id);
+  if (existing?.timer) clearTimeout(existing.timer);
+  const alarm = { id, title, body, scheduledAtMs, timer: null };
+  scheduledAlarms.set(id, alarm);
+  persistAlarms();
+  armAlarmTimer(alarm);
+  return true;
+}
+
+function cancelAlarm(id) {
+  const alarm = scheduledAlarms.get(id);
+  if (alarm?.timer) clearTimeout(alarm.timer);
+  scheduledAlarms.delete(id);
+  persistAlarms();
+}
+
+function cancelAllAlarms() {
+  for (const alarm of scheduledAlarms.values()) {
+    if (alarm.timer) clearTimeout(alarm.timer);
+  }
+  scheduledAlarms.clear();
+  persistAlarms();
+}
+
+/** Load persisted alarms on startup and re-arm them (fires recently-missed ones). */
+function restoreAlarms() {
+  try {
+    if (!fs.existsSync(alarmsFilePath())) return;
+    const entries = JSON.parse(fs.readFileSync(alarmsFilePath(), 'utf-8'));
+    for (const { id, title, body, scheduledAtMs } of entries) {
+      if (typeof id !== 'number' || typeof scheduledAtMs !== 'number') continue;
+      const alarm = { id, title, body: body || '', scheduledAtMs, timer: null };
+      scheduledAlarms.set(id, alarm);
+      armAlarmTimer(alarm);
+    }
+  } catch (err) {
+    console.error('[OmniPlan] Failed to restore alarms:', err);
+  }
+}
+
+ipcMain.handle('notification:show', (_event, title, body) => showDesktopNotification(String(title), String(body)));
+ipcMain.handle('notification:schedule', (_event, id, title, body, scheduledAtMs) =>
+  scheduleAlarm(Number(id), String(title), String(body), Number(scheduledAtMs)));
+ipcMain.handle('notification:cancel', (_event, id) => { cancelAlarm(Number(id)); });
+ipcMain.handle('notification:cancel-all', () => { cancelAllAlarms(); });
+ipcMain.handle('notification:is-supported', () => Notification.isSupported());
+
+// ---------------------------------------------------------------------------
+// Launch at startup (opt-in via first-launch prompt / settings toggle)
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('startup:get', () => app.getLoginItemSettings().openAtLogin);
+ipcMain.handle('startup:set', (_event, enable) => {
+  app.setLoginItemSettings({ openAtLogin: !!enable });
+  return app.getLoginItemSettings().openAtLogin;
+});
+
+// ---------------------------------------------------------------------------
+// System tray — keeps the app (and its alarms) alive when the window closes
+// ---------------------------------------------------------------------------
+
+function getTrayIcon() {
+  for (const candidate of [
+    path.join(__dirname, 'dist', 'favicon.ico'),
+    path.join(__dirname, 'public', 'favicon.ico'),
+  ]) {
+    if (fs.existsSync(candidate)) return nativeImage.createFromPath(candidate);
+  }
+  return nativeImage.createEmpty();
+}
+
+function confirmQuit() {
+  const opts = {
+    type: 'question',
+    buttons: ['Quit', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    title: 'Quit OmniPlanner',
+    message: 'Are you sure you want to quit?',
+    detail: 'Alarms, notifications, and background email checks will stop working until you reopen OmniPlanner.',
+  };
+  const choice = mainWindow && !mainWindow.isDestroyed()
+    ? dialog.showMessageBoxSync(mainWindow, opts)
+    : dialog.showMessageBoxSync(opts);
+  if (choice === 0) {
+    isQuitting = true;
+    app.quit();
+  }
+}
+
+function rebuildTrayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open OmniPlanner', click: () => { if (!mainWindow || mainWindow.isDestroyed()) createWindow(); focusMainWindow(); } },
+    {
+      label: 'Pause Alarms',
+      type: 'checkbox',
+      checked: alarmsPaused,
+      click: (item) => { alarmsPaused = item.checked; },
+    },
+    { type: 'separator' },
+    { label: 'Quit OmniPlanner', click: confirmQuit },
+  ]));
+}
+
+function createTray() {
+  if (tray) return;
+  try {
+    tray = new Tray(getTrayIcon());
+    tray.setToolTip('OmniPlanner — alarms active');
+    rebuildTrayMenu();
+    tray.on('double-click', () => { if (!mainWindow || mainWindow.isDestroyed()) createWindow(); focusMainWindow(); });
+  } catch (err) {
+    console.error('[OmniPlan] Tray creation failed:', err);
+    tray = null;
+  }
+}
+
 // Pre-configured IMAP hosts for known providers
 const IMAP_HOSTS = {
   gmail: { host: 'imap.gmail.com', port: 993 },
@@ -274,6 +482,16 @@ function createWindow() {
     win.webContents.focus();
   });
 
+  // Close-to-tray: the X button hides the window so alarms keep running.
+  // A real quit (tray menu, quit-app IPC) sets isQuitting first.
+  win.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      win.hide();
+      notifyHiddenToTrayOnce();
+    }
+  });
+
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });
@@ -281,11 +499,41 @@ function createWindow() {
   return win;
 }
 
-app.whenReady().then(createWindow);
+// One-time toast so users know the app didn't exit when they pressed X.
+let hiddenToTrayNotified = false;
+function notifyHiddenToTrayOnce() {
+  if (hiddenToTrayNotified) return;
+  hiddenToTrayNotified = true;
+  try {
+    const flagFile = path.join(app.getPath('userData'), 'tray-hint-shown');
+    if (fs.existsSync(flagFile)) return;
+    fs.writeFileSync(flagFile, '1', 'utf-8');
+    showDesktopNotification(
+      'OmniPlanner is still running',
+      'Alarms stay active in the background. Right-click the tray icon to quit.',
+    );
+  } catch (_) { /* best-effort */ }
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  createTray();
+  restoreAlarms();
+
+  // Timers don't tick during system sleep — re-arm everything on wake so
+  // recently-missed alarms fire and future ones get correct delays.
+  powerMonitor.on('resume', () => {
+    console.log('[OmniPlan] System resumed — re-arming alarms');
+    for (const alarm of [...scheduledAlarms.values()]) {
+      armAlarmTimer(alarm);
+    }
+  });
+});
 
 app.on('second-instance', focusMainWindow);
 
 app.on('before-quit', (event) => {
+  isQuitting = true;
   if (activeModelProcess) {
     try {
       console.log('[OmniPlan] Terminating local model server on exit...');
@@ -332,7 +580,10 @@ app.on('before-quit', (event) => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // With the tray active the app must survive window closure — that is the
+  // whole point of close-to-tray (alarms, background email). Only quit when
+  // the tray could not be created (and keep macOS dock behavior).
+  if (!tray && process.platform !== 'darwin') app.quit();
 });
 
 app.on('activate', () => {
@@ -376,6 +627,7 @@ async function checkForUpdates() {
 setTimeout(checkForUpdates, 30000);
 
 ipcMain.on('quit-app', () => {
+  isQuitting = true;
   app.quit();
 });
 

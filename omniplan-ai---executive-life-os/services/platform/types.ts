@@ -185,8 +185,8 @@ export type NotificationPermission = 'granted' | 'denied' | 'unavailable' | 'def
  *   AlarmManager (Android). Requires explicit permission grant.
  * Web browser: Web Notifications API + setTimeout scheduling. Works in
  *   modern browsers when the tab is open; no persistence across sessions.
- * Electron: Not implemented in Phase 10 — Electron has its own
- *   notification APIs outside this service boundary. nullNotifications is used.
+ * Electron (v4.0+): Main-process scheduling via IPC (electronNotifications).
+ *   Timers persist to disk and re-arm on startup and wake-from-sleep.
  */
 export interface NotificationService {
   /** True if this platform can schedule local notifications at all. */

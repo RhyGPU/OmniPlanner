@@ -19,7 +19,9 @@
  *     `requestPermission()` before the first schedule() call.
  *   Web browser (PWA): Uses Web Notifications API + setTimeout.
  *     Only fires while the tab is open.  Not persistent across restarts.
- *   Electron: nullNotifications — returns false; no notification fires.
+ *   Electron (v4.0+): Main-process timers via IPC. Alarms persist to disk,
+ *     survive renderer reloads, fire while hidden to the tray, and re-arm
+ *     on wake from sleep. No runtime permission needed.
  *
  * USAGE:
  *   // On app start / settings save:

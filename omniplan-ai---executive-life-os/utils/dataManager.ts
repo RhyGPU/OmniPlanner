@@ -255,6 +255,7 @@ export const previewBackupFile = (file: File): Promise<BackupPreview> => {
  *   ✗ API keys / email passwords (always device-local secure storage)
  *   ✗ Notification settings (device preference, not planner data)
  *   ✗ Zoom levels (UI state)
+ *   ✗ AI usage stats (device-local diagnostics)
  *
  * The caller should inform the user that credentials must be re-entered
  * if they are restoring to a new device.

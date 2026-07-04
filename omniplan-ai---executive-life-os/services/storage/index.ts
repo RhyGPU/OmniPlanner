@@ -62,6 +62,13 @@ export const LOCAL_STORAGE_KEYS = {
   /** Phase 14: set to true once the user has dismissed the first-run welcome card.
    *  Separate from planner-domain data so restore/import never clears it. */
   ONBOARDING_DISMISSED: 'omni_onboarding_dismissed',
+  /** v3.1: aggregate AI usage metrics (calls, tokens, estimated cost).
+   *  Device-local diagnostics — intentionally excluded from backup export. */
+  AI_USAGE_STATS: 'omni_ai_usage_stats',
+  /** v3.0: date key (YYYY-MM-DD) of the last shown Morning Briefing. */
+  LAST_BRIEFING_DATE: 'omni_last_briefing_date',
+  /** v4.0: set once the one-time launch-at-startup prompt has been answered. */
+  STARTUP_PROMPT_DONE: 'omni_startup_prompt_done',
 } as const;
 
 // ---------------------------------------------------------------------------

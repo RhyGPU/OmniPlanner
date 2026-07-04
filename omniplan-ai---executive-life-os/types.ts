@@ -261,8 +261,8 @@ export enum Tab {
  *     UNCalendarTrigger (iOS) / AlarmManager (Android). Requires permission.
  *   Web (PWA):          Best-effort via setTimeout + Web Notifications API.
  *     Only fires while the tab is open. No cross-session persistence.
- *   Electron:           Not implemented — nullNotifications is used.
- *     Desktop: Electron has its own notification APIs; integration is a future task.
+ *   Electron (v4.0+):   Main-process timers via IPC. Persisted to disk,
+ *     survive renderer reloads, fire while hidden to the tray.
  */
 export interface NotificationSettings {
   /** Master switch. When false, all reminders are cancelled. */

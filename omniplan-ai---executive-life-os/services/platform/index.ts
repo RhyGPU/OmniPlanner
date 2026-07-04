@@ -21,7 +21,7 @@
  * the codebase is a bug: all platform calls must go through this module.
  */
 
-import { electronCredentials, electronEmail, electronNetwork, electronShell, nullNotifications } from './electron';
+import { electronCredentials, electronEmail, electronNetwork, electronShell, electronNotifications } from './electron';
 import {
   capacitorCredentials,
   capacitorNotifications,
@@ -90,7 +90,7 @@ export const platform: PlatformServices = isElectron()
       email: electronEmail,
       network: electronNetwork,
       shell: electronShell,
-      notifications: nullNotifications,
+      notifications: electronNotifications,
     }
   : isCapacitor()
     ? {

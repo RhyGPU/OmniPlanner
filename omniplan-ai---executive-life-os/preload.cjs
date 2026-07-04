@@ -33,4 +33,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   localModelStart: (modelName, port) => ipcRenderer.invoke('local-model:start', modelName, port),
   localModelStop: () => ipcRenderer.invoke('local-model:stop'),
   localModelStatus: () => ipcRenderer.invoke('local-model:status'),
+  // Desktop notifications & alarms — timers live in the main process so they
+  // survive renderer reloads and fire while the window is hidden to the tray.
+  notificationIsSupported: () => ipcRenderer.invoke('notification:is-supported'),
+  notificationShow: (title, body) => ipcRenderer.invoke('notification:show', title, body),
+  notificationSchedule: (id, title, body, scheduledAtMs) => ipcRenderer.invoke('notification:schedule', id, title, body, scheduledAtMs),
+  notificationCancel: (id) => ipcRenderer.invoke('notification:cancel', id),
+  notificationCancelAll: () => ipcRenderer.invoke('notification:cancel-all'),
+  // Launch at login (opt-in)
+  startupGet: () => ipcRenderer.invoke('startup:get'),
+  startupSet: (enable) => ipcRenderer.invoke('startup:set', enable),
 });

@@ -8,7 +8,9 @@
  *   - Capacitor (mobile): Full support — shows permission request button.
  *   - Web (PWA):          Best-effort — shown with a caveat that notifications
  *                         only fire while the tab is open.
- *   - Electron (desktop): Not implemented — shown with an informational message.
+ *   - Electron (desktop): Full support (v4.0+) — main-process timers that keep
+ *                         firing while the window is hidden to the tray. Also
+ *                         hosts the launch-at-startup toggle.
  *
  * STATE OWNERSHIP:
  *   This component is stateless with respect to notification settings —
@@ -16,8 +18,8 @@
  *   notification state in App.tsx where it can drive the syncReminders() effect.
  */
 
-import React, { useState, useCallback } from 'react';
-import { Bell, BellOff, BellRing, Smartphone, Monitor, Globe, Shield } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Bell, BellOff, BellRing, Smartphone, Monitor, Globe, Shield, Power } from 'lucide-react';
 import type { NotificationSettings } from '../types';
 import { platform, isElectron, isCapacitor } from '../services/platform';
 import { requestNotificationPermission } from '../utils/notificationScheduler';
@@ -60,13 +62,14 @@ function formatTime(h: number, m: number): string {
 function PlatformBanner(): React.ReactElement {
   if (isElectron()) {
     return (
-      <div className="flex items-start gap-3 p-4 bg-slate-100 rounded-2xl border border-slate-200">
-        <Monitor size={18} className="text-slate-500 mt-0.5 shrink-0" />
+      <div className="flex items-start gap-3 p-4 bg-emerald-50 rounded-2xl border border-emerald-200">
+        <Monitor size={18} className="text-emerald-600 mt-0.5 shrink-0" />
         <div>
-          <p className="text-sm font-bold text-slate-700">Desktop — not available</p>
-          <p className="text-xs text-slate-500 mt-1">
-            Local notification reminders are not implemented for the desktop app in this version.
-            Electron has its own notification APIs; integration is planned for a future release.
+          <p className="text-sm font-bold text-emerald-800">Desktop — full support</p>
+          <p className="text-xs text-emerald-700 mt-1">
+            Reminders are scheduled in the background and keep firing while the window
+            is closed to the system tray. Closing the window does not quit OmniPlanner —
+            use the tray icon to quit fully.
           </p>
         </div>
       </div>
@@ -99,6 +102,62 @@ function PlatformBanner(): React.ReactElement {
           They only fire while this tab is open. For reliable mobile reminders,
           use the native iOS / Android app.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Launch-at-startup toggle (Electron only)
+// ---------------------------------------------------------------------------
+
+function StartupToggle(): React.ReactElement | null {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!isElectron() || !window.electronAPI?.startupGet) return;
+    window.electronAPI.startupGet().then(setEnabled).catch(() => setEnabled(null));
+  }, []);
+
+  if (!isElectron() || enabled === null) return null;
+
+  const handleToggle = async () => {
+    const next = !enabled;
+    setEnabled(next); // optimistic
+    try {
+      const actual = await window.electronAPI!.startupSet(next);
+      setEnabled(actual);
+    } catch {
+      setEnabled(!next);
+    }
+  };
+
+  return (
+    <div className={`flex items-center gap-2 md:gap-4 py-3 px-3 md:px-4 rounded-2xl transition-colors ${
+      enabled ? 'bg-emerald-50' : 'bg-slate-50'
+    }`}>
+      <button
+        onClick={handleToggle}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 cursor-pointer ${
+          enabled ? 'bg-emerald-600' : 'bg-slate-300'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+            enabled ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+      <div className="flex items-center gap-2 flex-1">
+        <Power size={14} className={enabled ? 'text-emerald-600' : 'text-slate-400'} />
+        <div>
+          <span className={`text-sm font-bold block ${enabled ? 'text-slate-900' : 'text-slate-400'}`}>
+            Launch OmniPlanner at login
+          </span>
+          <span className="text-xs text-slate-400">
+            Recommended so alarms fire after a restart without opening the app manually.
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -234,7 +293,7 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
   onChange,
 }) => {
   const isDesktop = isElectron();
-  const unavailable = isDesktop || !platform.notifications.isAvailable();
+  const unavailable = !platform.notifications.isAvailable();
 
   const update = useCallback((patch: Partial<NotificationSettings>) => {
     onChange({ ...settings, ...patch });
@@ -288,6 +347,13 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
       {!isDesktop && (
         <div className="mb-6">
           <PermissionButton onGranted={() => update({ enabled: true })} />
+        </div>
+      )}
+
+      {/* Launch at startup (desktop only) */}
+      {isDesktop && (
+        <div className="mb-6">
+          <StartupToggle />
         </div>
       )}
 

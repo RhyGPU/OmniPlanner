@@ -9,7 +9,7 @@ import { GoalsView } from './components/GoalsView';
 import { DataView } from './components/DataView';
 import { DashboardView } from './components/DashboardView';
 import { AlarmsView } from './components/AlarmsView';
-import { AlertDialog } from './components/Dialog';
+import { AlertDialog, ConfirmDialog } from './components/Dialog';
 import { UndoToast } from './components/UndoToast';
 import { Tab, Email, GoalItem, WeekData, CalendarEvent, Habit, NotificationSettings, ActualEventLog, Todo } from './types';
 import { createEmptyDailyPlan, getAllWeeks, saveAllWeeks, getOrCreateWeek, getWeekStorageKey } from './utils/weekManager';
@@ -20,6 +20,7 @@ import { getNotificationSettings, saveNotificationSettings } from './services/st
 import { syncReminders } from './utils/reminderSync';
 import { formatDateKey, getWeekDays } from './constants';
 import { storage, LOCAL_STORAGE_KEYS, getStorageStatus } from './services/storage';
+import { isElectron } from './services/platform';
 import type { StorageStatus } from './services/storage';
 import { getOnboardingDismissed, setOnboardingDismissed, hasPlannerData } from './services/storage/onboardingState';
 import { WelcomeCard } from './components/WelcomeCard';
@@ -262,12 +263,34 @@ export default function App() {
 
   // Daily Morning Briefing trigger and handlers
   useEffect(() => {
-    const lastBriefDate = storage.get<string>('omni_last_briefing_date');
+    const lastBriefDate = storage.get<string>(LOCAL_STORAGE_KEYS.LAST_BRIEFING_DATE);
     const todayStr = formatDateKey(currentDate);
     if (lastBriefDate !== todayStr) {
       setShowMorningBrief(true);
     }
   }, [currentDate]);
+
+  // One-time launch-at-startup prompt (desktop only). Opt-in per plan:
+  // never enabled silently — the user answers once, changeable later in
+  // Settings & Data → Notifications.
+  const [showStartupPrompt, setShowStartupPrompt] = useState(false);
+  useEffect(() => {
+    if (!isElectron() || !window.electronAPI?.startupSet) return;
+    if (storage.get<boolean>(LOCAL_STORAGE_KEYS.STARTUP_PROMPT_DONE)) return;
+    setShowStartupPrompt(true);
+  }, []);
+
+  const answerStartupPrompt = useCallback(async (enable: boolean) => {
+    storage.set(LOCAL_STORAGE_KEYS.STARTUP_PROMPT_DONE, true);
+    setShowStartupPrompt(false);
+    if (enable) {
+      try {
+        await window.electronAPI!.startupSet(true);
+      } catch (e) {
+        console.error('[OmniPlanner] Failed to enable launch at startup:', e);
+      }
+    }
+  }, []);
 
   const handleSetFocusTheme = useCallback((dateKey: string, theme: string) => {
     const date = new Date(dateKey + 'T00:00:00');
@@ -288,7 +311,7 @@ export default function App() {
 
   const handleDismissMorningBrief = useCallback(() => {
     const todayStr = formatDateKey(currentDate);
-    storage.set('omni_last_briefing_date', todayStr);
+    storage.set(LOCAL_STORAGE_KEYS.LAST_BRIEFING_DATE, todayStr);
     setShowMorningBrief(false);
   }, [currentDate]);
 
@@ -526,6 +549,15 @@ export default function App() {
   return (
     <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900 select-none overflow-hidden antialiased">
       {alertMsg && <AlertDialog message={alertMsg} onClose={() => setAlertMsg(null)} />}
+      {showStartupPrompt && (
+        <ConfirmDialog
+          message={'Would you like OmniPlanner to start automatically when you log in?\n\nRecommended for alarms and notifications — you can change this anytime in Settings & Data → Notifications.'}
+          confirmLabel="Yes, enable"
+          cancelLabel="No thanks"
+          onConfirm={() => answerStartupPrompt(true)}
+          onCancel={() => answerStartupPrompt(false)}
+        />
+      )}
 
       {/* Storage degraded warning banner — shown when IDB is unavailable or quota exceeded */}
       {storageStatus.health === 'degraded' && (
