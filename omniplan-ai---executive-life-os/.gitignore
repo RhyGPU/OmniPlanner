@@ -1,3 +1,9 @@
+# Local LLM binaries (llamafiles, multi-GB — never commit)
+models/
+
+# Archives
+*.zip
+
 # Logs
 logs
 *.log

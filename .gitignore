@@ -1,0 +1,7 @@
+# Design source assets (kept local — exported icons live in the app's build/ and public/)
+Icons for Omniplanner app/
+Site icon design.zip
+*.zip
+
+# Local tooling
+.claude/
