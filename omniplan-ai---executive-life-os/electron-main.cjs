@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, shell, net, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, net, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -225,15 +225,15 @@ function createWindow() {
 
   win.setMenuBarVisibility(false);
 
-  // Allow renderer fetch() to reach external AI and IMAP APIs.
-  // Without this, Electron's default file:// CSP blocks outbound connections.
+  const csp = DEV_URL
+    ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https:; connect-src *;"
+    : "default-src 'self' 'unsafe-inline' blob: data: https:; connect-src *;";
+
   win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https:; connect-src *;"
-        ],
+        'Content-Security-Policy': [csp],
       },
     });
   });
@@ -286,6 +286,12 @@ app.whenReady().then(createWindow);
 app.on('second-instance', focusMainWindow);
 
 app.on('before-quit', (event) => {
+  if (activeModelProcess) {
+    try {
+      console.log('[OmniPlan] Terminating local model server on exit...');
+      activeModelProcess.kill();
+    } catch (_) {}
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     // Trigger a synchronous screenshot of localStorage data for auto-backup
     mainWindow.webContents.executeJavaScript(
@@ -471,6 +477,136 @@ ipcMain.handle('keychain:set', (_event, key, value) => setCredential(key, value)
 ipcMain.handle('keychain:get', (_event, key) => getCredential(key));
 ipcMain.handle('keychain:delete', (_event, key) => { deleteCredential(key); });
 
+// ---------------------------------------------------------------------------
+// File-based Key-Value Storage IPC (FileStorageAdapter backend)
+// ---------------------------------------------------------------------------
+const storageDir = path.join(userDataDir, 'storage');
+fs.mkdirSync(storageDir, { recursive: true });
+
+ipcMain.handle('file-storage:read-all', () => {
+  const store = {};
+  try {
+    const files = fs.readdirSync(storageDir);
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        const key = file.slice(0, -5); // remove '.json'
+        const content = fs.readFileSync(path.join(storageDir, file), 'utf-8');
+        try {
+          store[key] = JSON.parse(content);
+        } catch (_) {
+          store[key] = content;
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[OmniPlan] file-storage:read-all failed:', err);
+  }
+  return store;
+});
+
+ipcMain.handle('file-storage:set', (_event, key, value) => {
+  try {
+    const filePath = path.join(storageDir, `${key}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(value, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    return true;
+  } catch (err) {
+    console.error(`[OmniPlan] file-storage:set failed for key ${key}:`, err);
+    return false;
+  }
+});
+
+ipcMain.handle('file-storage:remove', (_event, key) => {
+  try {
+    const filePath = path.join(storageDir, `${key}.json`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    return true;
+  } catch (err) {
+    console.error(`[OmniPlan] file-storage:remove failed for key ${key}:`, err);
+    return false;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Local Llamafile Server Process Management
+// ---------------------------------------------------------------------------
+const { spawn } = require('child_process');
+const modelsDir = path.join(__dirname, 'models');
+let activeModelProcess = null;
+let activeModelName = null;
+
+ipcMain.handle('local-model:list', async () => {
+  try {
+    if (!fs.existsSync(modelsDir)) {
+      return [];
+    }
+    const files = fs.readdirSync(modelsDir);
+    return files.filter(f => f.endsWith('.exe') || f.endsWith('.llamafile'));
+  } catch (err) {
+    console.error('[OmniPlan] local-model:list failed:', err);
+    return [];
+  }
+});
+
+ipcMain.handle('local-model:start', async (_event, modelName, port = 8080) => {
+  try {
+    if (activeModelProcess) {
+      console.log(`[OmniPlan] Stopping previous model process: ${activeModelName}`);
+      try { activeModelProcess.kill(); } catch (_) {}
+      activeModelProcess = null;
+      activeModelName = null;
+    }
+
+    const modelPath = path.join(modelsDir, modelName);
+    console.log(`[OmniPlan] Spawning local model server: ${modelName} on port ${port}`);
+
+    const proc = spawn(modelPath, ['--server', '--port', port.toString(), '--host', '127.0.0.1'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+
+    activeModelProcess = proc;
+    activeModelName = modelName;
+
+    proc.on('close', (code) => {
+      console.log(`[OmniPlan] Local model server closed with code: ${code}`);
+      if (activeModelName === modelName) {
+        activeModelProcess = null;
+        activeModelName = null;
+      }
+    });
+
+    proc.on('error', (err) => {
+      console.error(`[OmniPlan] Local model server process error:`, err);
+    });
+
+    proc.unref();
+    return { success: true, port };
+  } catch (err) {
+    console.error('[OmniPlan] local-model:start failed:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('local-model:stop', async () => {
+  if (activeModelProcess) {
+    console.log(`[OmniPlan] Stopping model process manually: ${activeModelName}`);
+    try { activeModelProcess.kill(); } catch (_) {}
+    activeModelProcess = null;
+    activeModelName = null;
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('local-model:status', async () => {
+  return {
+    running: activeModelProcess !== null,
+    modelName: activeModelName,
+  };
+});
+
 // One-shot connection test ??accepts credentials inline for the pre-save test
 // flow. Does NOT store credentials; caller is responsible for calling
 // keychain:set afterwards if the test passes.
@@ -562,6 +698,7 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
   console.log(`[email:body ${opId}] accountId=${account.id} provider=${account.provider} phase=start`);
   try {
     const { ImapFlow } = require('imapflow');
+    const { simpleParser } = require('mailparser');
     const hostConfig = IMAP_HOSTS[account.provider] || { host: account.imapHost, port: account.imapPort || 993 };
     const password = getCredential(`omni_email_pw_${account.id}`);
     if (!password) {
@@ -582,26 +719,13 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
     const lock = await client.getMailboxLock('INBOX');
 
     let body = '';
+    let htmlBody = '';
     try {
       const message = await client.fetchOne(uid, { source: true }, { uid: true });
       if (message?.source) {
-        // Simple text extraction from raw email source
-        const source = message.source.toString();
-        // Try to extract plain text body
-        const textMatch = source.match(/Content-Type:\s*text\/plain[\s\S]*?\r\n\r\n([\s\S]*?)(?:\r\n--|\r\n\.\r\n|$)/i);
-        if (textMatch) {
-          body = textMatch[1].replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-        } else {
-          // Fallback: strip HTML tags
-          const htmlMatch = source.match(/Content-Type:\s*text\/html[\s\S]*?\r\n\r\n([\s\S]*?)(?:\r\n--|\r\n\.\r\n|$)/i);
-          if (htmlMatch) {
-            body = htmlMatch[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-          } else {
-            // Last resort: everything after headers
-            const headerEnd = source.indexOf('\r\n\r\n');
-            body = headerEnd > -1 ? source.substring(headerEnd + 4) : source;
-          }
-        }
+        const parsed = await simpleParser(message.source);
+        body = parsed.text || '';
+        htmlBody = parsed.html || '';
       }
     } finally {
       lock.release();
@@ -609,7 +733,7 @@ ipcMain.handle('email:fetch-body', async (_event, account, uid) => {
 
     await client.logout();
     console.log(`[email:body ${opId}] accountId=${account.id} phase=complete`);
-    return { success: true, body, operationId: opId };
+    return { success: true, body, htmlBody, operationId: opId };
   } catch (error) {
     const code = classifyImapError(error);
     console.error(`[email:body ${opId}] accountId=${account.id} phase=failed code=${code} error="${error.message}"`);

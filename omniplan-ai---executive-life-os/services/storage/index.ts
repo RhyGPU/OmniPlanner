@@ -21,6 +21,7 @@
 import { setStorageReady, setStorageDegraded } from './storageHealth';
 export { getStorageStatus } from './storageHealth';
 export type { StorageStatus, StorageHealth, StorageBackend } from './storageHealth';
+import { isElectron } from '../platform';
 
 // ---------------------------------------------------------------------------
 // StorageAdapter interface
@@ -99,6 +100,90 @@ class LocalStorageAdapter implements StorageAdapter {
   }
 }
 
+/**
+ * File-system backed adapter for Electron desktop storage.
+ * Implements synchronous StorageAdapter contract via write-through in-memory cache.
+ */
+class ElectronFileStorageAdapter implements StorageAdapter {
+  private cache = new Map<string, string>();
+
+  private constructor(store: Record<string, any>) {
+    for (const [k, v] of Object.entries(store)) {
+      this.cache.set(k, JSON.stringify(v));
+    }
+  }
+
+  static async create(): Promise<ElectronFileStorageAdapter> {
+    if (typeof window === 'undefined' || !window.electronAPI?.fileStorageReadAll) {
+      throw new Error('Electron file storage IPC not available');
+    }
+    const store = await window.electronAPI.fileStorageReadAll();
+    const adapter = new ElectronFileStorageAdapter(store);
+    await adapter._bootstrap();
+    return adapter;
+  }
+
+  private async _bootstrap(): Promise<void> {
+    // Migrate legacy localStorage keys on first startup if files are empty
+    if (this.cache.size === 0) {
+      const legacyKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k !== null && k.startsWith('omni_')) legacyKeys.push(k);
+      }
+      if (legacyKeys.length > 0) {
+        console.info(`[storage] Migrating ${legacyKeys.length} keys from localStorage to FileSystem...`);
+        for (const key of legacyKeys) {
+          const raw = localStorage.getItem(key);
+          if (raw !== null) {
+            try {
+              const val = JSON.parse(raw);
+              await window.electronAPI!.fileStorageSet(key, val);
+              this.cache.set(key, raw);
+              localStorage.removeItem(key);
+            } catch (_) {
+              // ignore
+            }
+          }
+        }
+      }
+    }
+  }
+
+  get<T>(key: string): T | null {
+    const raw = this.cache.get(key);
+    if (raw === undefined) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  set<T>(key: string, value: T): void {
+    const raw = JSON.stringify(value);
+    this.cache.set(key, raw);
+    window.electronAPI!.fileStorageSet(key, value).catch(e => {
+      console.warn('[storage] FileStorage set failed for key', key, e);
+    });
+  }
+
+  remove(key: string): void {
+    this.cache.delete(key);
+    window.electronAPI!.fileStorageRemove(key).catch(e => {
+      console.warn('[storage] FileStorage remove failed for key', key, e);
+    });
+  }
+
+  keys(prefix?: string): string[] {
+    const result: string[] = [];
+    for (const k of this.cache.keys()) {
+      if (!prefix || k.startsWith(prefix)) result.push(k);
+    }
+    return result;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Storage proxy (allows adapter swap at startup)
 // ---------------------------------------------------------------------------
@@ -132,8 +217,20 @@ export function setStorageAdapter(adapter: StorageAdapter): void {
  * the backend.
  */
 export async function initStorage(useIDB: boolean): Promise<void> {
+  if (isElectron()) {
+    try {
+      const fileAdapter = await ElectronFileStorageAdapter.create();
+      setStorageAdapter(fileAdapter);
+      setStorageReady('localstorage'); // reuse localstorage layout tag for ease
+      return;
+    } catch (e) {
+      console.warn('[storage] Electron file storage init failed, using localStorage fallback:', e);
+      setStorageReady('localstorage');
+      return;
+    }
+  }
+
   if (!useIDB) {
-    // Electron path — localStorage is always the backend. Always healthy.
     setStorageReady('localstorage');
     return;
   }

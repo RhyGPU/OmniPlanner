@@ -40,7 +40,7 @@ declare global {
           enabled: boolean;
         },
         uid: string,
-      ): Promise<{ success: boolean; body?: string; error?: string }>;
+      ): Promise<{ success: boolean; body?: string; htmlBody?: string; error?: string }>;
 
       /** One-shot IMAP test before an account is saved. Credentials are passed
        *  inline and are NOT stored by this call. */
@@ -87,6 +87,27 @@ declare global {
 
       /** Check if a newer version is available on GitHub. Returns null if up-to-date. */
       checkUpdateStatus(): Promise<{ current: string; latest: string; url: string } | null>;
+
+      /** Load all files from the local storage folder. */
+      fileStorageReadAll(): Promise<Record<string, any>>;
+
+      /** Write a key-value file to local storage. */
+      fileStorageSet(key: string, value: any): Promise<boolean>;
+
+      /** Remove a key-value file from local storage. */
+      fileStorageRemove(key: string): Promise<boolean>;
+
+      /** List local llamafile models in the models directory. */
+      localModelList(): Promise<string[]>;
+
+      /** Spawn a local model server process. */
+      localModelStart(modelName: string, port: number): Promise<{ success: boolean; port: number; error?: string }>;
+
+      /** Kill the active local model server process. */
+      localModelStop(): Promise<boolean>;
+
+      /** Get status of the active local model server process. */
+      localModelStatus(): Promise<{ running: boolean; modelName: string | null }>;
     };
   }
 }

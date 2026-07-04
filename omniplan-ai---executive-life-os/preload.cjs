@@ -24,4 +24,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   triggerManualBackup: () => ipcRenderer.invoke('trigger-manual-backup'),
   // Update check
   checkUpdateStatus: () => ipcRenderer.invoke('check-update-status'),
+  // File-system storage
+  fileStorageReadAll: () => ipcRenderer.invoke('file-storage:read-all'),
+  fileStorageSet: (key, value) => ipcRenderer.invoke('file-storage:set', key, value),
+  fileStorageRemove: (key) => ipcRenderer.invoke('file-storage:remove', key),
+  // Local model server control
+  localModelList: () => ipcRenderer.invoke('local-model:list'),
+  localModelStart: (modelName, port) => ipcRenderer.invoke('local-model:start', modelName, port),
+  localModelStop: () => ipcRenderer.invoke('local-model:stop'),
+  localModelStatus: () => ipcRenderer.invoke('local-model:status'),
 });

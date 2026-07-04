@@ -27,12 +27,6 @@ export interface GoalItem {
   text: string;
   timeframe: GoalTimeframe;
   parentGoalId?: string;
-  /**
-   * @deprecated Phase 3: Not persisted. Use Todo.parentGoalId as the sole link
-   * source and getTodosLinkedToGoal() / getGoalProgress() selectors to derive
-   * linked state from allWeeks at read time.
-   */
-  linkedWeeklyGoalIds?: string[];
   order: number;
   status: GoalStatus;
   notes?: string;
@@ -63,6 +57,12 @@ export interface HabitStreak {
 /** Phase 5: discriminates calendar block purpose for scheduling intelligence. */
 export type CalendarEventKind = 'meeting' | 'focus' | 'task_block' | 'routine';
 
+export interface CalendarSubEvent {
+  id: string;
+  title: string;
+  completed: boolean;
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -71,6 +71,7 @@ export interface CalendarEvent {
   duration: number;
   color: string;
   repeating?: boolean; // Whether this event repeats to future weeks
+  subEvents?: CalendarSubEvent[];
   // Phase 5: execution linkage — all optional, backward-compatible
   eventKind?: CalendarEventKind;
   /** Link to a GoalItem.id — this block supports that goal. */
@@ -150,6 +151,7 @@ export interface Email {
   subject: string;
   preview: string;
   body: string;
+  htmlBody?: string;
   time: string;
   read: boolean;
 }
