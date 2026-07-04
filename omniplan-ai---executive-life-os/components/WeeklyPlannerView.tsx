@@ -6,7 +6,7 @@ import type { NotificationSettings } from '../types';
 import { getFocusGoalItems } from '../utils/goalManager';
 import {
   getWeekDays, formatDateKey, DAYS, MONTHS,
-  START_HOUR, PIXELS_PER_HOUR, formatHour, generateTimeSlots
+  START_HOUR, PIXELS_PER_HOUR, formatHour, generateTimeSlots, STEP
 } from '../constants';
 import { calculateCrossWeekStreak, getWeekStorageKey } from '../utils/weekManager';
 import { getMilestoneForStreak, getFlameColorClass } from '../utils/habitMilestones';
@@ -67,6 +67,8 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
   const [eventEditor, setEventEditor] = useState<EventEditorState | null>(null);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [activeDayIdx, setActiveDayIdx] = useState(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1);
+  const [showActuals, setShowActuals] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [mobileTab, setMobileTab] = useState<'plan' | 'strategy'>('plan');
   const [newHabitName, setNewHabitName] = useState('');
   const [isAddingHabit, setIsAddingHabit] = useState(false);
@@ -340,6 +342,26 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
     setEventEditor(null);
   }, [eventEditor, currentWeek, updateCurrentWeek]);
 
+  const toggleSubEvent = useCallback((dateKey: string, eventId: string, subId: string) => {
+    const updatedDailyPlans = { ...currentWeek.dailyPlans };
+    const dayPlan = updatedDailyPlans[dateKey];
+    if (!dayPlan) return;
+
+    dayPlan.events = dayPlan.events.map(evt => {
+      if (evt.id === eventId) {
+        return {
+          ...evt,
+          subEvents: (evt.subEvents || []).map(sub =>
+            sub.id === subId ? { ...sub, completed: !sub.completed } : sub
+          )
+        };
+      }
+      return evt;
+    });
+
+    updateCurrentWeek({ ...currentWeek, dailyPlans: updatedDailyPlans });
+  }, [currentWeek, updateCurrentWeek]);
+
   const renderedDates = isMobile ? [weekDates[activeDayIdx]] : weekDates;
 
   return (
@@ -385,9 +407,26 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
             <div className="text-xl lg:text-3xl font-black text-slate-900 leading-none truncate">{MONTHS[currentDate.getMonth()].toUpperCase()}</div>
             <div className="text-xs font-bold text-slate-400 mt-1.5">Week of {weekDates[0].getDate()}</div>
           </div>
-          <div className="flex items-center gap-2">
-             <button onClick={() => jumpWeeks(-1)} className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:bg-slate-50"><ChevronLeft size={20}/></button>
-             <button onClick={() => jumpWeeks(1)} className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:bg-slate-50"><ChevronRight size={20}/></button>
+          <div className="flex flex-row lg:flex-col items-center lg:items-stretch gap-2 mt-2 w-full lg:w-auto">
+             <div className="flex items-center gap-2">
+                <button onClick={() => jumpWeeks(-1)} className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:bg-slate-50"><ChevronLeft size={20}/></button>
+                <button onClick={() => jumpWeeks(1)} className="p-3 bg-white border border-slate-200 rounded-xl shadow-sm text-slate-600 hover:bg-slate-50"><ChevronRight size={20}/></button>
+             </div>
+             <button
+                onClick={() => {
+                  const newVal = !showActuals;
+                  setShowActuals(newVal);
+                  setShowReview(newVal);
+                }}
+                className={`py-2 px-3 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95 ${
+                  showActuals && showReview
+                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-emerald-200'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Activity size={12}/>
+                {showActuals && showReview ? 'Actuals Active' : 'Plan vs Actual'}
+              </button>
           </div>
         </div>
         
@@ -718,7 +757,7 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         {weekDates.map((date, idx) => {
                         const isToday = new Date().toDateString() === date.toDateString();
                         return (
-                            <div key={idx} className="flex-1 min-w-[200px] flex flex-col border-r border-slate-200 last:border-r-0">
+                            <div key={idx} className="flex-1 min-w-[200px] flex flex-col border-r border-slate-300 last:border-r-0">
                                 <div className={`h-16 px-4 py-3 flex items-center justify-between border-b border-slate-100 ${isToday ? 'bg-blue-600 text-white' : 'bg-white'}`}>
                                     <div>
                                         <div className={`text-[9px] font-black uppercase tracking-widest ${isToday ? 'text-blue-100' : 'text-slate-400'}`}>{DAYS[idx]}</div>
@@ -752,43 +791,53 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         const dateKey = formatDateKey(date);
                         const dayPlan = currentWeek.dailyPlans[dateKey];
                         return (
-                            <div key={idx} className="flex-1 min-w-[200px] border-r border-slate-200 last:border-r-0 flex flex-col">
-                                <div className="p-6 bg-gradient-to-br from-blue-50/20 via-white to-white border-b border-slate-100 min-h-[160px]">
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <div className="w-1.5 h-4 bg-blue-600 rounded-full"></div>
-                                        <div className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em]">Daily Focus</div>
+                            <div key={idx} className="flex-1 min-w-[200px] border-r border-slate-300 last:border-r-0 flex flex-col p-4 bg-slate-50/30">
+                                <div className="bg-white border border-slate-200/60 rounded-[2rem] shadow-md p-5 flex-1 flex flex-col space-y-5 transition-all hover:shadow-lg">
+                                    {/* Daily Focus */}
+                                    <div className="bg-gradient-to-br from-blue-50/40 via-white to-white border border-slate-100/70 rounded-2xl p-4 min-h-[140px] flex flex-col">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <div className="w-1.5 h-3.5 bg-blue-600 rounded-full"></div>
+                                            <div className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Daily Focus</div>
+                                        </div>
+                                        <textarea 
+                                            className="w-full flex-1 bg-transparent border-none text-[16px] font-black text-slate-900 leading-[1.3] resize-none p-0 focus:ring-0 placeholder:text-slate-200 placeholder:font-black italic" 
+                                            placeholder="The absolute priority..." 
+                                            value={dayPlan.focus || ""} 
+                                            onChange={(e) => {
+                                              const updatedPlans = { ...currentWeek.dailyPlans };
+                                              updatedPlans[dateKey] = { ...dayPlan, focus: e.target.value };
+                                              updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
+                                            }}
+                                        />
                                     </div>
-                                    <textarea 
-                                        className="w-full min-h-[100px] bg-transparent border-none text-[18px] font-black text-slate-900 leading-[1.3] resize-none p-0 focus:ring-0 placeholder:text-slate-200 placeholder:font-black italic" 
-                                        placeholder="The absolute priority..." 
-                                        value={dayPlan.focus || ""} 
-                                        onChange={(e) => {
-                                          const updatedPlans = { ...currentWeek.dailyPlans };
-                                          updatedPlans[dateKey] = { ...dayPlan, focus: e.target.value };
-                                          updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
-                                        }}
-                                    />
-                                </div>
-                                <div className="p-6 bg-white min-h-[300px]">
-                                    <div className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em] mb-6 flex items-center gap-3">To Do List<div className="flex-1 h-px bg-slate-50"></div></div>
-                                    <CheckableList
-                                      items={dayPlan.todos}
-                                      onChange={(newTodos) => {
-                                        const updatedPlans = { ...currentWeek.dailyPlans };
-                                        updatedPlans[dateKey] = { ...dayPlan, todos: newTodos };
-                                        updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
-                                      }}
-                                      onAdd={() => {
-                                        const updatedPlans = { ...currentWeek.dailyPlans };
-                                        updatedPlans[dateKey] = { ...dayPlan, todos: [...dayPlan.todos, {id: `t-${Date.now()}`, text: '', done: false}] };
-                                        updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
-                                      }}
-                                      placeholder="Next action..."
-                                      renderSuffix={makeDailyGoalSuffix(dateKey, dayPlan)}
-                                    />
+                                    
+                                    {/* To Do List */}
+                                    <div className="flex-1 flex flex-col pt-1">
+                                        <div className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                            <span>To Do List</span>
+                                            <div className="flex-1 h-[1px] bg-slate-100"></div>
+                                        </div>
+                                        <div className="flex-grow">
+                                            <CheckableList
+                                              items={dayPlan.todos}
+                                              onChange={(newTodos) => {
+                                                const updatedPlans = { ...currentWeek.dailyPlans };
+                                                updatedPlans[dateKey] = { ...dayPlan, todos: newTodos };
+                                                updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
+                                              }}
+                                              onAdd={() => {
+                                                const updatedPlans = { ...currentWeek.dailyPlans };
+                                                updatedPlans[dateKey] = { ...dayPlan, todos: [...dayPlan.todos, {id: `t-${Date.now()}`, text: '', done: false}] };
+                                                updateCurrentWeek({ ...currentWeek, dailyPlans: updatedPlans });
+                                              }}
+                                              placeholder="Next action..."
+                                              renderSuffix={makeDailyGoalSuffix(dateKey, dayPlan)}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        );
+                        )
                     })}
                 </div>
                 
@@ -798,28 +847,78 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                         const dayPlan = currentWeek.dailyPlans[dateKey];
                         
                         return (
-                            <div key={idx} className="flex-1 min-w-[200px] border-r border-slate-200 last:border-r-0 relative bg-white/40" style={{ height: `${24 * PIXELS_PER_HOUR}px` }}>
-                                {generateTimeSlots().map((hour) => (
-                                    <div 
-                                        key={hour} 
-                                        className="h-20 border-b border-slate-100/40 flex items-start px-3 py-1.5 relative group cursor-pointer hover:bg-blue-50/50" 
-                                        onClick={() => setEventEditor({ dateKey, startHour: hour, duration: 1, title: "", isNew: true, repeating: false, eventKind: 'focus' as CalendarEventKind })}
-                                    >
-                                        <span className="text-[9px] font-black text-slate-200 group-hover:text-blue-500 pointer-events-none">{formatHour(hour)}</span>
-                                    </div>
-                                ))}
+                            <div key={idx} className="flex-1 min-w-[200px] border-r border-slate-300 last:border-r-0 relative bg-white/40" style={{ height: `${24 * PIXELS_PER_HOUR}px` }}>
+                                {generateTimeSlots().map((hour) => {
+                                    const isHourBoundary = Number.isInteger(hour);
+                                    return (
+                                        <div 
+                                            key={hour} 
+                                            style={{ height: `${PIXELS_PER_HOUR * STEP}px` }}
+                                            className={`border-b flex items-start px-3 py-1 relative group cursor-pointer hover:bg-blue-50/40 transition-colors ${
+                                                isHourBoundary ? 'border-slate-200/90' : 'border-slate-200/40 border-dashed'
+                                            }`}
+                                            onClick={() => setEventEditor({ dateKey, startHour: hour, duration: 1, title: "", isNew: true, repeating: false, eventKind: 'focus' as CalendarEventKind })}
+                                        >
+                                            <span className={`text-[9px] font-bold pointer-events-none transition-colors ${
+                                                isHourBoundary 
+                                                    ? 'text-slate-400 group-hover:text-blue-600' 
+                                                    : 'text-slate-300/40 group-hover:text-blue-400/50'
+                                            }`}>
+                                                {formatHour(hour)}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
                                 {dayPlan.events.map(evt => {
                                     const top = (evt.startHour - START_HOUR) * PIXELS_PER_HOUR; 
                                     const height = evt.duration * PIXELS_PER_HOUR;
+
+                                    const actualLog = dayPlan.actuals?.events?.find(
+                                      (a: any) => a.plannedEventId === evt.id
+                                    );
+                                    const isAttended = actualLog && actualLog.attended;
+                                    const isSkipped = actualLog && !actualLog.attended;
+
+                                    let opacityStyle = "";
+                                    if (showActuals && actualLog) {
+                                      opacityStyle = "opacity-40 border-dashed";
+                                    }
+
                                     return (
+                                      <React.Fragment key={`${evt.id}-${dateKey}`}>
                                         <div
-                                            key={`${evt.id}-${dateKey}`}
-                                            onClick={(e) => { e.stopPropagation(); setEventEditor({ dateKey, id: evt.id, title: evt.title, startHour: evt.startHour, duration: evt.duration, isNew: false, repeating: evt.repeating ?? false, eventKind: evt.eventKind, parentGoalId: evt.parentGoalId, linkedTodoId: evt.linkedTodoId }); }}
+                                            onClick={(e) => { e.stopPropagation(); setEventEditor({ dateKey, id: evt.id, title: evt.title, startHour: evt.startHour, duration: evt.duration, isNew: false, repeating: evt.repeating ?? false, eventKind: evt.eventKind, parentGoalId: evt.parentGoalId, linkedTodoId: evt.linkedTodoId, subEvents: evt.subEvents ?? [] }); }}
                                             style={{ top: `${top}px`, height: `${height - 1}px` }}
-                                            className={`absolute left-0 right-0 mx-1 rounded-2xl border-l-4 shadow-xl shadow-slate-200/50 p-3.5 text-[11px] leading-tight cursor-pointer hover:brightness-95 z-10 overflow-hidden transition-all hover:scale-[1.03] active:scale-95 ${evt.color}`}
+                                            className={`absolute left-0 right-0 mx-1 rounded-2xl border-l-4 shadow-xl shadow-slate-200/50 p-3.5 text-[11px] leading-tight cursor-pointer hover:brightness-95 z-10 overflow-y-auto custom-scrollbar transition-all hover:scale-[1.03] active:scale-95 ${evt.color} ${opacityStyle}`}
                                         >
                                             <div className="font-black truncate uppercase tracking-tight text-slate-900">{evt.title}</div>
                                             <div className="opacity-70 font-bold text-[9px] mt-1 uppercase tracking-wider">{formatHour(evt.startHour)} - {formatHour(evt.startHour + evt.duration)}</div>
+                                            
+                                            {/* Sub-Events Checklist Grid view */}
+                                            {evt.subEvents && evt.subEvents.length > 0 && (
+                                              <div className="mt-2 space-y-1.5 z-20 pointer-events-auto">
+                                                {evt.subEvents.map((sub) => (
+                                                  <div
+                                                    key={sub.id}
+                                                    className="flex items-center gap-1.5 text-[9px] font-bold text-slate-700 hover:text-slate-900"
+                                                    onClick={(clickEvent) => {
+                                                      clickEvent.stopPropagation(); // prevent modal opening
+                                                      toggleSubEvent(dateKey, evt.id, sub.id);
+                                                    }}
+                                                  >
+                                                    <input
+                                                      type="checkbox"
+                                                      checked={sub.completed}
+                                                      readOnly
+                                                      className="w-2.5 h-2.5 rounded border-slate-305 text-indigo-600 focus:ring-indigo-500 cursor-pointer flex-shrink-0"
+                                                    />
+                                                    <span className={`truncate ${sub.completed ? 'line-through opacity-45' : ''}`}>
+                                                      {sub.title}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
                                             {evt.parentGoalId && (() => {
                                               const g = goalItems.find(gi => gi.id === evt.parentGoalId);
                                               return g ? (
@@ -836,7 +935,35 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
                                                 <span>{getFocusReminderLabel(notificationSettings)}</span>
                                               </div>
                                             )}
+                                            {isSkipped && (
+                                              <div className="absolute inset-0 bg-red-500/10 flex items-center justify-center pointer-events-none">
+                                                <span className="bg-red-600 text-white font-black text-[8px] uppercase tracking-widest px-2 py-0.5 rounded shadow">SKIPPED</span>
+                                              </div>
+                                            )}
                                         </div>
+
+                                        {showActuals && isAttended && (() => {
+                                          const actualStart = actualLog.actualStartHour ?? evt.startHour;
+                                          const actualDur = actualLog.actualEndHour ? (actualLog.actualEndHour - actualLog.actualStartHour) : evt.duration;
+                                          const actualTop = (actualStart - START_HOUR) * PIXELS_PER_HOUR;
+                                          const actualHeight = actualDur * PIXELS_PER_HOUR;
+                                          return (
+                                            <div
+                                              style={{ 
+                                                top: `${actualTop}px`, 
+                                                height: `${actualHeight - 1}px`,
+                                                width: '45%',
+                                                left: '50%'
+                                              }}
+                                              className="absolute right-0 mr-1 rounded-2xl border-l-4 border-emerald-500 bg-emerald-50 text-emerald-800 shadow-lg p-2 text-[10px] leading-tight z-20 overflow-hidden"
+                                              title={`Actual: Started at ${formatHour(actualStart)}`}
+                                            >
+                                              <div className="font-black truncate uppercase tracking-tight">✓ ACTUAL</div>
+                                              <div className="font-bold text-[8px] truncate mt-0.5">{formatHour(actualStart)}</div>
+                                            </div>
+                                          );
+                                        })()}
+                                      </React.Fragment>
                                     );
                                 })}
                             </div>
@@ -846,8 +973,24 @@ export const WeeklyPlannerView: React.FC<WeeklyPlannerProps> = ({
             </div>
         )}
 
-        {/* Week Review — Plan vs Actual */}
-        <WeekReview weekData={currentWeek} />
+        {/* Week Review — Plan vs Actual Collapsible Drawer */}
+        {showReview && (
+          <div className="w-full lg:w-[350px] shrink-0 border-l border-slate-200 bg-white/95 backdrop-blur-xl shadow-2xl flex flex-col z-40 transition-all duration-300 relative">
+            <button
+              onClick={() => {
+                setShowReview(false);
+                setShowActuals(false);
+              }}
+              className="absolute top-5 right-5 text-slate-400 hover:text-red-500 p-2 rounded-xl hover:bg-slate-50 transition-all z-50"
+              title="Close Review Panel"
+            >
+              <X size={16} />
+            </button>
+            <div className="flex-grow overflow-y-auto p-4 lg:p-6 custom-scrollbar mt-8">
+              <WeekReview weekData={currentWeek} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

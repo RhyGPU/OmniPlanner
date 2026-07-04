@@ -1,7 +1,8 @@
 
 import React from 'react';
 import { Mail, Calendar as CalendarIcon, Clock, Target, Settings, Save, ZoomIn, ZoomOut, RotateCcw, LayoutDashboard, Bell } from 'lucide-react';
-import { Tab } from '../types';
+import { Tab, ActualEventLog } from '../types';
+import { PomodoroTimer } from './PomodoroTimer';
 
 interface SidebarProps {
   emailsCount: number;
@@ -12,6 +13,7 @@ interface SidebarProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
+  onLogActual: (log: ActualEventLog) => void;
 }
 
 const NavButton = ({ id, icon, label, count, activeTab, setActiveTab }: {
@@ -40,7 +42,7 @@ const NavButton = ({ id, icon, label, count, activeTab, setActiveTab }: {
   </button>
 );
 
-export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setActiveTab, onQuickSave, zoomPercent, onZoomIn, onZoomOut, onZoomReset }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setActiveTab, onQuickSave, zoomPercent, onZoomIn, onZoomOut, onZoomReset, onLogActual }) => {
   return (
     <div className="w-20 md:w-64 bg-slate-900 text-white flex flex-col h-full flex-shrink-0 transition-all duration-300 z-20 border-r border-slate-800">
       <div className="p-6 flex items-center justify-center md:justify-start gap-3">
@@ -52,7 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setAct
         </span>
       </div>
 
-      <nav className="flex-1 mt-4 space-y-1.5 px-3">
+      <nav className="flex-1 mt-4 space-y-1.5 px-3 overflow-y-auto">
         <NavButton activeTab={activeTab} setActiveTab={setActiveTab} id={Tab.Dashboard} icon={<LayoutDashboard size={20} />} label="Dashboard" />
         <NavButton activeTab={activeTab} setActiveTab={setActiveTab} id={Tab.Alarms} icon={<Bell size={20} />} label="Pulse" />
         <div className="pt-2 border-b border-slate-800 mx-2" />
@@ -73,7 +75,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setAct
         </div>
       </nav>
 
-      <div className="p-4 border-t border-slate-800 hidden md:block space-y-3">
+      <div className="p-4 border-t border-slate-800 hidden md:block space-y-4">
+        {/* Pomodoro Timer */}
+        <PomodoroTimer onLogActual={onLogActual} />
+
+        <div className="border-t border-slate-800/80 my-2" />
+
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Zoom</span>
           <span className="text-[10px] text-slate-400 font-mono font-bold">{zoomPercent}%</span>

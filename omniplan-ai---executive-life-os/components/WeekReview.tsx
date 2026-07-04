@@ -47,7 +47,7 @@ export const WeekReview: React.FC<WeekReviewProps> = ({ weekData }) => {
       : 'bg-red-50 border-red-200';
 
   return (
-    <div className="border-t border-slate-200 bg-slate-50/50 p-4 lg:p-6 space-y-4">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

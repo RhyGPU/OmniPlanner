@@ -23,6 +23,7 @@ import { storage, LOCAL_STORAGE_KEYS, getStorageStatus } from './services/storag
 import type { StorageStatus } from './services/storage';
 import { getOnboardingDismissed, setOnboardingDismissed, hasPlannerData } from './services/storage/onboardingState';
 import { WelcomeCard } from './components/WelcomeCard';
+import { MorningBriefing } from './components/MorningBriefing';
 
 const INITIAL_EMAILS: Email[] = [
   { id: 1, provider: 'internal', sender: "OmniPlan Core", subject: "Executive System Ready", preview: "Your dashboard is ready...", body: "Welcome to OmniPlan!\n\nThis system is designed for high-performance scheduling. Your weekly planner, monthly overview, and life vision board are now active.\n\nUse the 'AI Optimize Week' feature to automatically generate focus themes based on your historical data and current tasks.\n\nBest,\nOmniPlan Team", time: "09:00 AM", read: false },
@@ -33,6 +34,7 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [aiLoading, setAiLoading] = useState(false);
   const [alertMsg, setAlertMsg] = useState<string | null>(null);
+  const [showMorningBrief, setShowMorningBrief] = useState(false);
 
   // Undo toast state
   const [undoToast, setUndoToast] = useState<{
@@ -257,6 +259,38 @@ export default function App() {
       .then(() => migrateCredentials())
       .then(() => initAICredentials());
   }, []);
+
+  // Daily Morning Briefing trigger and handlers
+  useEffect(() => {
+    const lastBriefDate = storage.get<string>('omni_last_briefing_date');
+    const todayStr = formatDateKey(currentDate);
+    if (lastBriefDate !== todayStr) {
+      setShowMorningBrief(true);
+    }
+  }, [currentDate]);
+
+  const handleSetFocusTheme = useCallback((dateKey: string, theme: string) => {
+    const date = new Date(dateKey + 'T00:00:00');
+    const weekDates = getWeekDays(date);
+    const weekStart = formatDateKey(weekDates[0]);
+    setAllWeeks(prev => {
+      const updated = { ...prev };
+      const week = updated[weekStart];
+      if (!week) return prev;
+      if (!week.dailyPlans[dateKey]) {
+        week.dailyPlans[dateKey] = { todos: [], notes: '', events: [] };
+      }
+      week.dailyPlans[dateKey].focusTheme = theme;
+      updated[weekStart] = { ...week };
+      return updated;
+    });
+  }, []);
+
+  const handleDismissMorningBrief = useCallback(() => {
+    const todayStr = formatDateKey(currentDate);
+    storage.set('omni_last_briefing_date', todayStr);
+    setShowMorningBrief(false);
+  }, [currentDate]);
 
   // Sync local notifications whenever notification settings change, or when
   // today's focus events or habit list changes (for accurate reminder targets).
@@ -518,6 +552,7 @@ export default function App() {
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onZoomReset={handleZoomReset}
+        onLogActual={handleLogActual}
       />
 
       <main className="flex-1 flex flex-col p-2 md:p-4 bg-slate-100 min-w-0 h-screen overflow-hidden">
@@ -537,6 +572,7 @@ export default function App() {
                 onNavigateToWeek={navigateToWeeklyView}
                 onAddTodo={handleDashboardAddTodo}
                 onAddHabit={handleDashboardAddHabit}
+                onShowMorningBrief={() => setShowMorningBrief(true)}
               />
             )}
             {activeTab === Tab.Alarms && (
@@ -597,6 +633,15 @@ export default function App() {
           message={undoToast.message}
           onUndo={undoToast.onUndo}
           onDismiss={dismissUndoToast}
+        />
+      )}
+
+      {showMorningBrief && (
+        <MorningBriefing
+          currentWeek={currentWeek}
+          today={currentDate}
+          onSetFocusTheme={handleSetFocusTheme}
+          onDismiss={handleDismissMorningBrief}
         />
       )}
     </div>

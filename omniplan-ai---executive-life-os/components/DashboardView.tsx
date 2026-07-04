@@ -16,7 +16,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import {
   Clock, Zap, Check, X, Moon, Sun, Star, ChevronRight,
   Mail, Target, Bell, Play, SkipForward, Timer, Plus,
-  Flame, Dumbbell, Coffee, BookOpen, Heart
+  Flame, Dumbbell, Coffee, BookOpen, Heart, Sparkles
 } from 'lucide-react';
 import type {
   CalendarEvent, ActualEventLog, Email, Habit, Todo, WeekData,
@@ -37,6 +37,7 @@ interface DashboardProps {
   onNavigateToWeek: (date: Date) => void;
   onAddTodo?: (todo: Todo, dateKey: string) => void;
   onAddHabit?: (habit: Habit) => void;
+  onShowMorningBrief?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,7 @@ export const DashboardView: React.FC<DashboardProps> = ({
   onToggleTodo,
   onAddTodo,
   onAddHabit,
+  onShowMorningBrief,
 }) => {
   const [showAddTodo, setShowAddTodo] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
@@ -119,6 +121,9 @@ export const DashboardView: React.FC<DashboardProps> = ({
       score: number;
     }> = [];
 
+    const now = new Date();
+    const currentHour = now.getHours() + now.getMinutes() / 60;
+
     for (let dayOffset = 0; dayOffset < 8; dayOffset++) {
       const date = new Date(today);
       date.setDate(date.getDate() + dayOffset);
@@ -130,6 +135,11 @@ export const DashboardView: React.FC<DashboardProps> = ({
       if (!dayPlan) continue;
 
       for (const event of (dayPlan.events ?? [])) {
+        // If it's today, filter out events that have already ended (startHour + duration <= currentHour)
+        if (dayOffset === 0 && event.startHour + event.duration <= currentHour) {
+          continue;
+        }
+
         const actual = (dayPlan.actuals as any)?.events?.find(
           (a: ActualEvent) => a.plannedEventId === event.id
         );
@@ -245,6 +255,8 @@ export const DashboardView: React.FC<DashboardProps> = ({
   const todayStr = `${DAYS[today.getDay() === 0 ? 6 : today.getDay() - 1]}, ${today.getMonth() + 1}/${today.getDate()}`;
   const timeNow = formatHour(new Date().getHours() + new Date().getMinutes() / 60);
 
+  const dayPlan = currentWeek.dailyPlans?.[todayKey];
+
   return (
     <div className="flex flex-col h-full bg-slate-50 overflow-y-auto">
       {/* Header */}
@@ -254,12 +266,60 @@ export const DashboardView: React.FC<DashboardProps> = ({
             <h1 className="text-xl lg:text-2xl font-black text-slate-900">{todayStr}</h1>
             <p className="text-xs text-slate-400 font-medium mt-0.5">Dashboard</p>
           </div>
-          <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl">
-            <Clock size={14} className="text-slate-400" />
-            <span className="text-sm font-black text-slate-700">{timeNow}</span>
+          <div className="flex items-center gap-2">
+            {onShowMorningBrief && (
+              <button
+                onClick={onShowMorningBrief}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-200/40"
+                title="Review Daily Briefing"
+              >
+                <Sparkles size={13} className="text-blue-500" />
+                <span className="hidden sm:inline">Daily Brief</span>
+              </button>
+            )}
+            <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl">
+              <Clock size={14} className="text-slate-400" />
+              <span className="text-sm font-black text-slate-700">{timeNow}</span>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Daily Focus theme banner */}
+      {dayPlan?.focusTheme && (
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-3.5 mx-3 lg:mx-5 mt-4 rounded-2xl flex items-center justify-between gap-4 shadow-lg shadow-blue-500/10">
+          <div className="flex items-center gap-3 min-w-0">
+            <Target size={18} className="text-blue-200 flex-shrink-0 animate-pulse"/>
+            <div className="min-w-0">
+              <span className="text-[9px] font-black uppercase text-blue-200 tracking-wider">Today's Executive Focus</span>
+              <p className="text-sm font-black leading-tight truncate">{dayPlan.focusTheme}</p>
+            </div>
+          </div>
+          {onShowMorningBrief && (
+            <button
+              onClick={onShowMorningBrief}
+              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 active:scale-95 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex-shrink-0"
+            >
+              Change Focus
+            </button>
+          )}
+        </div>
+      )}
+
+      {!dayPlan?.focusTheme && onShowMorningBrief && (
+        <div className="bg-white border border-slate-200/80 text-slate-600 px-5 py-3.5 mx-3 lg:mx-5 mt-4 rounded-2xl flex items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-2.5 text-xs font-semibold">
+            <Sparkles size={14} className="text-blue-500 animate-pulse"/>
+            <span>Align your day. Set your daily focus theme.</span>
+          </div>
+          <button
+            onClick={onShowMorningBrief}
+            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex-shrink-0 border border-blue-100"
+          >
+            Set Focus
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 p-3 lg:p-5 space-y-4 max-w-3xl mx-auto w-full">
 
@@ -274,7 +334,7 @@ export const DashboardView: React.FC<DashboardProps> = ({
           </div>
 
           <div className="space-y-1.5">
-            {upcomingEvents.slice(0, 5).map(({ event, dateKey, dayOffset, actual, isSleep }) => {
+            {upcomingEvents.slice(0, 3).map(({ event, dateKey, dayOffset, actual, isSleep }) => {
               const isStarted = actual?.attended === true;
               const isMissed = actual === false;
               const hasEnded = isStarted && (actual as any)?.actualEndHour != null;

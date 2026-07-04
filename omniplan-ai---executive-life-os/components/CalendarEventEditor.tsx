@@ -1,7 +1,7 @@
 
-import React from 'react';
-import { X, Target, Bell, BellOff } from 'lucide-react';
-import { CalendarEventKind, GoalItem } from '../types';
+import React, { useState } from 'react';
+import { X, Target, Bell, BellOff, Plus, Trash2 } from 'lucide-react';
+import { CalendarEventKind, GoalItem, CalendarSubEvent } from '../types';
 import type { NotificationSettings } from '../types';
 import { formatHour, generateTimeSlots } from '../constants';
 import { isElectron } from '../services/platform';
@@ -18,6 +18,7 @@ export interface EventEditorState {
   eventKind?: CalendarEventKind;
   parentGoalId?: string;
   linkedTodoId?: string;
+  subEvents?: CalendarSubEvent[];
 }
 
 interface CalendarEventEditorProps {
@@ -45,6 +46,38 @@ export const CalendarEventEditor: React.FC<CalendarEventEditorProps> = ({
   eventEditor, onChange, onSave, onClose, onDelete, goalItems,
   notificationSettings, onNotificationSettingsChange,
 }) => {
+  const [newSubTitle, setNewSubTitle] = useState('');
+
+  const handleAddSubEvent = () => {
+    if (!newSubTitle.trim()) return;
+    const subs = eventEditor.subEvents || [];
+    const newSub: CalendarSubEvent = {
+      id: String(Date.now()),
+      title: newSubTitle.trim(),
+      completed: false,
+    };
+    onChange({
+      ...eventEditor,
+      subEvents: [...subs, newSub],
+    });
+    setNewSubTitle('');
+  };
+
+  const handleRemoveSubEvent = (subId: string) => {
+    const subs = eventEditor.subEvents || [];
+    onChange({
+      ...eventEditor,
+      subEvents: subs.filter(s => s.id !== subId),
+    });
+  };
+
+  const handleToggleSubEvent = (subId: string) => {
+    const subs = eventEditor.subEvents || [];
+    onChange({
+      ...eventEditor,
+      subEvents: subs.map(s => s.id === subId ? { ...s, completed: !s.completed } : s),
+    });
+  };
   const isFocusKind =
     eventEditor.eventKind === 'focus' || eventEditor.eventKind === 'task_block';
 
@@ -207,6 +240,65 @@ export const CalendarEventEditor: React.FC<CalendarEventEditorProps> = ({
               )}
             </div>
           )}
+
+          {/* Sub-Events Checklist Section */}
+          <div className="border-t border-slate-100 pt-4">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
+              Sub-Events & Checklist
+            </label>
+            
+            {/* List of current sub-events */}
+            {eventEditor.subEvents && eventEditor.subEvents.length > 0 && (
+              <div className="space-y-1.5 mb-3 max-h-36 overflow-y-auto pr-1">
+                {eventEditor.subEvents.map(sub => (
+                  <div key={sub.id} className="flex items-center justify-between bg-slate-50 border border-slate-100/50 rounded-xl px-3 py-2">
+                    <label className="flex items-center gap-2 min-w-0 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={sub.completed}
+                        onChange={() => handleToggleSubEvent(sub.id)}
+                        className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className={`text-xs font-bold text-slate-700 truncate ${sub.completed ? 'line-through opacity-50' : ''}`}>
+                        {sub.title}
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSubEvent(sub.id)}
+                      className="text-slate-400 hover:text-red-500 p-1 transition-colors"
+                    >
+                      <Trash2 size={12}/>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {/* Input to add sub-event */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newSubTitle}
+                onChange={e => setNewSubTitle(e.target.value)}
+                placeholder="Add sub-event..."
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddSubEvent();
+                  }
+                }}
+                className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold bg-slate-50 focus:outline-none focus:border-indigo-400 transition-all"
+              />
+              <button
+                type="button"
+                onClick={handleAddSubEvent}
+                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-100 rounded-xl p-2.5 flex items-center justify-center transition-all"
+              >
+                <Plus size={14}/>
+              </button>
+            </div>
+          </div>
 
           <div className="flex gap-3 pt-3">
              {!eventEditor.isNew && <button onClick={onDelete} className="flex-1 bg-red-50 text-red-600 font-black py-3.5 rounded-2xl text-xs uppercase tracking-widest">Delete</button>}
