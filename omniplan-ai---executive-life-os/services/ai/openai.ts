@@ -5,6 +5,7 @@
 
 import { AIProvider, ScheduleItem } from './types';
 import { electronFetch } from '../../utils/electronFetch';
+import { logAiCall } from './tokenLogger';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
@@ -31,6 +32,12 @@ async function chatCompletion(apiKey: string, systemPrompt: string, userPrompt: 
   }
 
   const data = await response.json();
+  
+  const usage = data.usage;
+  if (usage) {
+    logAiCall('openai', usage.prompt_tokens || 0, usage.completion_tokens || 0);
+  }
+
   return data.choices?.[0]?.message?.content?.trim() || '';
 }
 

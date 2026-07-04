@@ -5,6 +5,7 @@
 
 import { AIProvider, ScheduleItem } from './types';
 import { electronFetch } from '../../utils/electronFetch';
+import { logAiCall } from './tokenLogger';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
@@ -33,6 +34,12 @@ async function createMessage(apiKey: string, systemPrompt: string, userPrompt: s
   }
 
   const data = await response.json();
+  
+  const usage = data.usage;
+  if (usage) {
+    logAiCall('anthropic', usage.input_tokens || 0, usage.output_tokens || 0);
+  }
+
   const textBlock = data.content?.find((b: any) => b.type === 'text');
   return textBlock?.text?.trim() || '';
 }

@@ -6,6 +6,7 @@
 
 import { AIProvider, ScheduleItem } from './types';
 import { electronFetch } from '../../utils/electronFetch';
+import { logAiCall } from './tokenLogger';
 
 interface OpenAICompatibleConfig {
   baseUrl: string;
@@ -45,6 +46,13 @@ async function chatCompletion(config: OpenAICompatibleConfig, systemPrompt: stri
   }
 
   const data = await response.json();
+  
+  const usage = data.usage;
+  if (usage) {
+    const providerId = config.baseUrl.includes('openrouter') ? 'openrouter' : 'custom';
+    logAiCall(providerId, usage.prompt_tokens || 0, usage.completion_tokens || 0);
+  }
+
   return data.choices?.[0]?.message?.content?.trim() || '';
 }
 

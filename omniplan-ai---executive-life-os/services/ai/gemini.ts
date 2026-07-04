@@ -6,6 +6,7 @@
 
 import { AIProvider, ScheduleItem } from './types';
 import { electronFetch } from '../../utils/electronFetch';
+import { logAiCall } from './tokenLogger';
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -31,6 +32,14 @@ async function generateContent(
   }
 
   const data = await response.json();
+  
+  const usage = data.usageMetadata;
+  if (usage) {
+    const promptTokens = usage.promptTokenCount || 0;
+    const completionTokens = usage.candidatesTokenCount || 0;
+    logAiCall('gemini', promptTokens, completionTokens);
+  }
+
   return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
 }
 
