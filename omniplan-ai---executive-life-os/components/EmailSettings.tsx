@@ -157,6 +157,16 @@ export const EmailSettings: React.FC = () => {
         </div>
       )}
 
+      {/* Web fallback plaintext warning */}
+      {!platform.credentials.isAvailable() && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-6">
+          <AlertTriangle size={16} className="text-amber-600 mt-0.5 flex-shrink-0"/>
+          <p className="text-xs font-bold text-amber-700">
+            Running in Web Sandbox — passwords will be saved in plaintext browser storage. Use the desktop app for secure hardware encryption.
+          </p>
+        </div>
+      )}
+
       {keychainUnavailable && (
         <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 mb-4">
           <AlertTriangle size={16} className="text-amber-600 mt-0.5 flex-shrink-0"/>

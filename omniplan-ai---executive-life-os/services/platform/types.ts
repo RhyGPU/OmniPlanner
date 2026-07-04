@@ -99,6 +99,8 @@ export interface EmailService {
   ): Promise<{
     success: boolean;
     body?: string;
+    /** Sanitized-for-iframe rich HTML body when the message had an HTML part. */
+    htmlBody?: string;
     error?: string;
     /** Stable error code from EMAIL_ERROR_CODES — present on failure. */
     code?: string;

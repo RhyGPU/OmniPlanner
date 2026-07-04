@@ -38,6 +38,7 @@ function formatHour(h: number): string {
 
 export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeeks, onAddEvent }) => {
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'html' | 'text'>('html');
   const [fetching, setFetching] = useState(false);
   const [fetchWarnings, setFetchWarnings] = useState<string[]>([]);
   const [extractState, setExtractState] = useState<ExtractState>({ phase: 'idle' });
@@ -115,7 +116,7 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
     setBodyLoadError(null);
     const result = await platform.email.fetchEmailBody(account, email._uid);
     if (result.success) {
-      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, body: result.body } : e));
+      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, body: result.body, htmlBody: result.htmlBody } : e));
     } else {
       setBodyLoadError(getEmailUserMessage(result.code));
     }
@@ -168,6 +169,7 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
     setBodyLoadError(null);
     markRead(email.id);
     loadEmailBody(email);
+    setViewMode('html');
   };
 
   /** Resolve the real "To" address for a fetched email, or null if unknown. */
@@ -418,12 +420,65 @@ export const EmailView: React.FC<EmailViewProps> = ({ emails, setEmails, allWeek
                 </div>
               )}
 
+              {/* HTML/Text toggle button */}
+              {selectedEmail.htmlBody && (
+                <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl self-start text-[10px] font-black uppercase tracking-wider shadow-inner w-fit">
+                  <button
+                    onClick={() => setViewMode('html')}
+                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                      viewMode === 'html' ? 'bg-white text-slate-800 shadow' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    HTML
+                  </button>
+                  <button
+                    onClick={() => setViewMode('text')}
+                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                      viewMode === 'text' ? 'bg-white text-slate-800 shadow' : 'text-slate-400 hover:text-slate-600'
+                    }`}
+                  >
+                    Text
+                  </button>
+                </div>
+              )}
+
               {/* Email body */}
-              <div className="text-slate-700 leading-relaxed whitespace-pre-line text-lg font-medium">
-                {selectedEmail.body || (
-                  <span className="text-slate-400 italic text-base">
-                    {bodyLoadError ? 'Message could not be loaded.' : 'Loading message…'}
-                  </span>
+              <div className="text-slate-700 leading-relaxed text-sm font-medium">
+                {viewMode === 'html' && selectedEmail.htmlBody ? (
+                  <iframe
+                    srcDoc={`
+                      <!DOCTYPE html>
+                      <html>
+                        <head>
+                          <style>
+                            body {
+                              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                              line-height: 1.6;
+                              color: #334155;
+                              margin: 0;
+                              padding: 10px;
+                            }
+                            a { color: #2563eb; }
+                            img { max-width: 100%; height: auto; }
+                          </style>
+                        </head>
+                        <body>
+                          ${selectedEmail.htmlBody}
+                        </body>
+                      </html>
+                    `}
+                    sandbox=""
+                    className="w-full min-h-[500px] border border-slate-200 rounded-2xl bg-white shadow-inner"
+                    title="Email Content"
+                  />
+                ) : (
+                  <div className="whitespace-pre-line text-slate-700 text-base font-normal">
+                    {selectedEmail.body || (
+                      <span className="text-slate-400 italic text-base">
+                        {bodyLoadError ? 'Message could not be loaded.' : 'Loading message…'}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
