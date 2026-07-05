@@ -126,6 +126,12 @@ declare global {
       /** Cancel all scheduled notifications. */
       notificationCancelAll(): Promise<void>;
 
+      /** Register a listener for alarm triggers from the main process. Returns a cleanup function. */
+      notificationOnTrigger(callback: (data: { id: string; title: string; body: string; missionType?: string; snoozeDuration: number; fadeInDuration: number }) => void): () => void;
+
+      /** Send the list of custom alarms to the main process for scheduling. */
+      updateCustomAlarms(alarms: any[]): Promise<boolean>;
+
       /** True when the app is registered to launch at login. */
       startupGet(): Promise<boolean>;
 

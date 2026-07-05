@@ -11,8 +11,8 @@
  * Each alarm shows: time, what it's for, enable/disable toggle.
  */
 
-import React from 'react';
-import { Bell, BellOff, Clock, Moon, Zap, Target, Sun, Timer, Check } from 'lucide-react';
+import React, { useState } from 'react';
+import { Bell, BellOff, Clock, Moon, Zap, Target, Sun, Timer, Check, Trash2, Plus } from 'lucide-react';
 import type { NotificationSettings, WeekData } from '../types';
 import { deriveAlarmsForDay } from '../utils/alarmRules';
 import { formatDateKey, DAYS } from '../constants';
@@ -40,6 +40,60 @@ export const AlarmsView: React.FC<AlarmsViewProps> = ({
   const today = new Date();
   const todayKey = formatDateKey(today);
   const isEnabled = notificationSettings.enabled;
+
+  const [showCreator, setShowCreator] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newTime, setNewTime] = useState('07:00');
+  const [newDays, setNewDays] = useState<number[]>([1, 2, 3, 4, 5]); // Mon-Fri
+  const [newMission, setNewMission] = useState<'none' | 'math' | 'checklist' | 'theme'>('none');
+  const [newSnooze, setNewSnooze] = useState(5);
+  const [newFadeIn, setNewFadeIn] = useState(0);
+
+  const customAlarms = notificationSettings.customAlarms || [];
+
+  const handleAddCustomAlarm = () => {
+    if (!newTitle.trim()) return;
+    const [hStr, mStr] = newTime.split(':');
+    const hour = parseInt(hStr || '7', 10);
+    const minute = parseInt(mStr || '0', 10);
+
+    const newAlarm = {
+      id: Date.now().toString(),
+      title: newTitle.trim(),
+      hour,
+      minute,
+      enabled: true,
+      daysOfWeek: newDays,
+      missionType: newMission,
+      snoozeDuration: newSnooze,
+      fadeInDuration: newFadeIn,
+    };
+
+    updateSettings({
+      customAlarms: [...customAlarms, newAlarm],
+    });
+
+    setNewTitle('');
+    setShowCreator(false);
+  };
+
+  const handleToggleCustomAlarm = (id: string) => {
+    const updated = customAlarms.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a);
+    updateSettings({ customAlarms: updated });
+  };
+
+  const handleDeleteCustomAlarm = (id: string) => {
+    const updated = customAlarms.filter(a => a.id !== id);
+    updateSettings({ customAlarms: updated });
+  };
+
+  const toggleDay = (day: number) => {
+    if (newDays.includes(day)) {
+      setNewDays(newDays.filter(d => d !== day));
+    } else {
+      setNewDays([...newDays, day]);
+    }
+  };
 
   // Derive event-based alarms for today
   const dayPlan = currentWeek.dailyPlans?.[todayKey];
@@ -260,6 +314,218 @@ export const AlarmsView: React.FC<AlarmsViewProps> = ({
               </button>
             </div>
           </div>
+        </section>
+
+        {/* ===== CUSTOM ALARMS ===== */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Custom Alarms</h2>
+            <button
+              disabled={!isEnabled}
+              onClick={() => setShowCreator(!showCreator)}
+              className="text-xs font-black text-blue-500 hover:text-blue-600 disabled:opacity-50 transition-colors uppercase tracking-wider flex items-center gap-1"
+            >
+              <Plus size={14} />
+              {showCreator ? 'Close' : 'Add Alarm'}
+            </button>
+          </div>
+
+          {/* Creator form */}
+          {showCreator && isEnabled && (
+            <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4 shadow-sm">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-1">Alarm Label</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Gym Time"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={newTime}
+                    onChange={(e) => setNewTime(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Days repeat selector */}
+              <div>
+                <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-1.5">Repeat Days</label>
+                <div className="flex gap-1.5">
+                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dayName, idx) => {
+                    const isSelected = newDays.includes(idx);
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => toggleDay(idx)}
+                        className={`w-7 h-7 rounded-full text-[10px] font-black transition-all ${
+                          isSelected
+                            ? 'bg-blue-500 text-white shadow-md shadow-blue-100 scale-105'
+                            : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                        }`}
+                      >
+                        {dayName}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Mission type and settings */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-1">Wake Mission</label>
+                  <select
+                    value={newMission}
+                    onChange={(e) => setNewMission(e.target.value as any)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs font-bold focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
+                  >
+                    <option value="none">None (Simple)</option>
+                    <option value="math">Math Puzzles</option>
+                    <option value="checklist">Planner Checklist</option>
+                    <option value="theme">Retype Daily Theme</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-1">Snooze</label>
+                  <select
+                    value={newSnooze}
+                    onChange={(e) => setNewSnooze(parseInt(e.target.value, 10))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs font-bold focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
+                  >
+                    <option value={5}>5 minutes</option>
+                    <option value={10}>10 minutes</option>
+                    <option value={15}>15 minutes</option>
+                    <option value={30}>30 minutes</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block mb-1">Fade-In Sound</label>
+                  <select
+                    value={newFadeIn}
+                    onChange={(e) => setNewFadeIn(parseInt(e.target.value, 10))}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs font-bold focus:outline-none focus:border-blue-500 transition-colors cursor-pointer"
+                  >
+                    <option value={0}>Instant</option>
+                    <option value={10}>10 seconds</option>
+                    <option value={20}>20 seconds</option>
+                    <option value={30}>30 seconds</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Save trigger */}
+              <div className="flex justify-end pt-1">
+                <button
+                  onClick={handleAddCustomAlarm}
+                  disabled={!newTitle.trim()}
+                  className="bg-blue-500 hover:bg-blue-600 disabled:bg-slate-200 text-white disabled:text-slate-400 px-4 py-2 rounded-xl text-xs font-black transition-all active:scale-95 shadow-lg shadow-blue-100 disabled:shadow-none"
+                >
+                  Save Alarm
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Alarms list */}
+          {customAlarms.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-xs text-slate-400">
+              No custom alarms configured. Add alarms to schedule custom routines.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {customAlarms.map((alarm) => {
+                const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+                const formattedTime = formatHour(alarm.hour + alarm.minute / 60);
+
+                return (
+                  <div
+                    key={alarm.id}
+                    className={`bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3 transition-opacity ${
+                      alarm.enabled && isEnabled ? 'opacity-100' : 'opacity-60'
+                    }`}
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                      <Clock size={16} className="text-blue-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm font-black text-slate-800">{formattedTime}</span>
+                        <span className="text-xs font-black text-slate-700 truncate">{alarm.title}</span>
+                      </div>
+
+                      {/* Repeat days indicator */}
+                      <div className="flex gap-1 mt-1">
+                        {dayLabels.map((day, idx) => {
+                          const active = alarm.daysOfWeek.includes(idx);
+                          return (
+                            <span
+                              key={idx}
+                              className={`text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center ${
+                                active
+                                  ? 'bg-blue-100 text-blue-600'
+                                  : 'bg-slate-50 text-slate-300'
+                              }`}
+                            >
+                              {day}
+                            </span>
+                          );
+                        })}
+                      </div>
+
+                      {/* Mission & settings badges */}
+                      {alarm.enabled && isEnabled && (
+                        <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                          {alarm.missionType !== 'none' && (
+                            <span className="bg-amber-50 border border-amber-100 text-amber-600 text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                              ⚡ {alarm.missionType} mission
+                            </span>
+                          )}
+                          {alarm.snoozeDuration !== 5 && (
+                            <span className="bg-slate-50 border border-slate-100 text-slate-500 text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                              Snooze: {alarm.snoozeDuration}m
+                            </span>
+                          )}
+                          {alarm.fadeInDuration > 0 && (
+                            <span className="bg-indigo-50 border border-indigo-100 text-indigo-500 text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                              Fade: {alarm.fadeInDuration}s
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        disabled={!isEnabled}
+                        onClick={() => handleToggleCustomAlarm(alarm.id)}
+                        className={`w-10 h-6 rounded-full transition-colors relative disabled:opacity-50 ${
+                          alarm.enabled && isEnabled ? 'bg-emerald-500' : 'bg-slate-200'
+                        }`}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
+                          alarm.enabled && isEnabled ? 'left-5' : 'left-1'
+                        }`} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCustomAlarm(alarm.id)}
+                        className="text-slate-300 hover:text-red-500 p-1 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* ===== EVENT-DERIVED ALARMS ===== */}

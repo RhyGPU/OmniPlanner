@@ -190,7 +190,18 @@ const alarmsFilePath = () => path.join(app.getPath('userData'), 'scheduled-alarm
 
 function persistAlarms() {
   try {
-    const entries = [...scheduledAlarms.values()].map(({ id, title, body, scheduledAtMs }) => ({ id, title, body, scheduledAtMs }));
+    const entries = [...scheduledAlarms.values()].map(({ id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, hour, minute, daysOfWeek }) => ({
+      id,
+      title,
+      body,
+      scheduledAtMs,
+      missionType,
+      snoozeDuration,
+      fadeInDuration,
+      hour,
+      minute,
+      daysOfWeek
+    }));
     fs.writeFileSync(alarmsFilePath(), JSON.stringify(entries), { encoding: 'utf-8', mode: 0o600 });
   } catch (err) {
     console.error('[OmniPlan] Failed to persist alarms:', err);
@@ -215,6 +226,22 @@ function showDesktopNotification(title, body) {
   return true;
 }
 
+function getNextOccurrenceMs(hour, minute, daysOfWeek) {
+  const now = new Date();
+  let candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+  if (candidate.getTime() <= now.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  if (daysOfWeek && daysOfWeek.length > 0) {
+    let count = 0;
+    while (!daysOfWeek.includes(candidate.getDay()) && count < 8) {
+      candidate.setDate(candidate.getDate() + 1);
+      count++;
+    }
+  }
+  return candidate.getTime();
+}
+
 /** Fire an alarm now (unless paused) and remove it from the schedule. */
 function fireAlarm(id) {
   const alarm = scheduledAlarms.get(id);
@@ -226,6 +253,37 @@ function fireAlarm(id) {
     return;
   }
   showDesktopNotification(alarm.title, alarm.body);
+
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('alarm:trigger', {
+      id: alarm.id,
+      title: alarm.title,
+      body: alarm.body,
+      missionType: alarm.missionType || 'none',
+      snoozeDuration: alarm.snoozeDuration || 5,
+      fadeInDuration: alarm.fadeInDuration || 0
+    });
+  }
+
+  // Reschedule custom recurring alarms
+  if (String(id).startsWith('custom-') && alarm.daysOfWeek) {
+    const nextMs = getNextOccurrenceMs(alarm.hour, alarm.minute, alarm.daysOfWeek);
+    scheduleAlarmExt(
+      alarm.id,
+      alarm.title,
+      alarm.body,
+      nextMs,
+      alarm.missionType,
+      alarm.snoozeDuration,
+      alarm.fadeInDuration,
+      alarm.hour,
+      alarm.minute,
+      alarm.daysOfWeek
+    );
+  }
 }
 
 const MAX_TIMEOUT_MS = 2147483647; // setTimeout ceiling (~24.8 days)
@@ -254,14 +312,30 @@ function armAlarmTimer(alarm) {
   }, Math.min(delay, MAX_TIMEOUT_MS));
 }
 
-function scheduleAlarm(id, title, body, scheduledAtMs) {
+function scheduleAlarmExt(id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, hour, minute, daysOfWeek) {
   const existing = scheduledAlarms.get(id);
   if (existing?.timer) clearTimeout(existing.timer);
-  const alarm = { id, title, body, scheduledAtMs, timer: null };
+  const alarm = {
+    id,
+    title,
+    body,
+    scheduledAtMs,
+    missionType: missionType || 'none',
+    snoozeDuration: snoozeDuration || 5,
+    fadeInDuration: fadeInDuration || 0,
+    hour,
+    minute,
+    daysOfWeek,
+    timer: null
+  };
   scheduledAlarms.set(id, alarm);
   persistAlarms();
   armAlarmTimer(alarm);
   return true;
+}
+
+function scheduleAlarm(id, title, body, scheduledAtMs) {
+  return scheduleAlarmExt(id, title, body, scheduledAtMs, 'none', 5, 0);
 }
 
 function cancelAlarm(id) {
@@ -284,9 +358,22 @@ function restoreAlarms() {
   try {
     if (!fs.existsSync(alarmsFilePath())) return;
     const entries = JSON.parse(fs.readFileSync(alarmsFilePath(), 'utf-8'));
-    for (const { id, title, body, scheduledAtMs } of entries) {
-      if (typeof id !== 'number' || typeof scheduledAtMs !== 'number') continue;
-      const alarm = { id, title, body: body || '', scheduledAtMs, timer: null };
+    for (const entry of entries) {
+      const { id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, hour, minute, daysOfWeek } = entry;
+      if (!id || typeof scheduledAtMs !== 'number') continue;
+      const alarm = {
+        id,
+        title,
+        body: body || '',
+        scheduledAtMs,
+        missionType: missionType || 'none',
+        snoozeDuration: snoozeDuration || 5,
+        fadeInDuration: fadeInDuration || 0,
+        hour,
+        minute,
+        daysOfWeek,
+        timer: null
+      };
       scheduledAlarms.set(id, alarm);
       armAlarmTimer(alarm);
     }
@@ -297,10 +384,42 @@ function restoreAlarms() {
 
 ipcMain.handle('notification:show', (_event, title, body) => showDesktopNotification(String(title), String(body)));
 ipcMain.handle('notification:schedule', (_event, id, title, body, scheduledAtMs) =>
-  scheduleAlarm(Number(id), String(title), String(body), Number(scheduledAtMs)));
-ipcMain.handle('notification:cancel', (_event, id) => { cancelAlarm(Number(id)); });
+  scheduleAlarm(id, String(title), String(body), Number(scheduledAtMs)));
+ipcMain.handle('notification:cancel', (_event, id) => { cancelAlarm(id); });
 ipcMain.handle('notification:cancel-all', () => { cancelAllAlarms(); });
 ipcMain.handle('notification:is-supported', () => Notification.isSupported());
+
+ipcMain.handle('alarms:update-custom', (_event, customAlarms) => {
+  try {
+    if (!Array.isArray(customAlarms)) return false;
+    for (const key of [...scheduledAlarms.keys()]) {
+      if (String(key).startsWith('custom-')) {
+        cancelAlarm(key);
+      }
+    }
+    for (const customAlarm of customAlarms) {
+      if (!customAlarm.enabled) continue;
+      const id = `custom-${customAlarm.id}`;
+      const nextMs = getNextOccurrenceMs(customAlarm.hour, customAlarm.minute, customAlarm.daysOfWeek);
+      scheduleAlarmExt(
+        id,
+        customAlarm.title,
+        customAlarm.label || 'Custom Alarm',
+        nextMs,
+        customAlarm.missionType,
+        customAlarm.snoozeDuration,
+        customAlarm.fadeInDuration,
+        customAlarm.hour,
+        customAlarm.minute,
+        customAlarm.daysOfWeek
+      );
+    }
+    return true;
+  } catch (err) {
+    console.error('[OmniPlan] Failed to update custom alarms:', err);
+    return false;
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Launch at startup (opt-in via first-launch prompt / settings toggle)

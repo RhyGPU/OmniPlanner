@@ -26,6 +26,7 @@ import { getOnboardingDismissed, setOnboardingDismissed, hasPlannerData } from '
 import { WelcomeCard } from './components/WelcomeCard';
 import { MorningBriefing } from './components/MorningBriefing';
 import { CarryForwardDialog } from './components/CarryForwardDialog';
+import { AlarmMissionOverlay } from './components/AlarmMissionOverlay';
 import {
   getCarryForwardCandidates,
   groupCandidatesByGoal,
@@ -287,6 +288,86 @@ export default function App() {
     runMobileSecureMigration()
       .then(() => migrateCredentials())
       .then(() => initAICredentials());
+  }, []);
+
+  // Active alarm state & triggers (v4.1)
+  const [activeAlarm, setActiveAlarm] = useState<{
+    id: string;
+    title: string;
+    body: string;
+    missionType: 'none' | 'math' | 'checklist' | 'theme';
+    snoozeDuration: number;
+    fadeInDuration: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.notificationOnTrigger) {
+      const cleanup = window.electronAPI.notificationOnTrigger((alarmData: any) => {
+        setActiveAlarm(alarmData);
+      });
+      return cleanup;
+    }
+  }, []);
+
+  const handleSnoozeAlarm = useCallback((minutes: number) => {
+    if (!activeAlarm) return;
+    
+    // 1. Schedule one-shot snooze alarm in main process
+    if (typeof window !== 'undefined' && window.electronAPI?.notificationSchedule) {
+      window.electronAPI.notificationSchedule(
+        Date.now(),
+        `Snooze: ${activeAlarm.title}`,
+        activeAlarm.body,
+        Date.now() + minutes * 60_000
+      );
+    }
+
+    // 2. Smart Planner Snooze: Reschedule matching calendar events
+    const todayKey = formatDateKey(currentDate);
+    const dayPlan = currentWeek.dailyPlans?.[todayKey];
+    if (dayPlan?.events) {
+      const shiftHours = minutes / 60;
+      let shifted = false;
+      const updatedEvents = dayPlan.events.map(ev => {
+        const isMatch = activeAlarm.title.toLowerCase().includes(ev.title.toLowerCase()) ||
+                        activeAlarm.body.toLowerCase().includes(ev.title.toLowerCase());
+        if (isMatch) {
+          shifted = true;
+          return {
+            ...ev,
+            startHour: Math.min(23.75, ev.startHour + shiftHours)
+          };
+        }
+        return ev;
+      });
+
+      if (shifted) {
+        setAllWeeks(prev => {
+          const wKey = getWeekStorageKey(currentDate);
+          const week = prev[wKey];
+          if (!week) return prev;
+          return {
+            ...prev,
+            [wKey]: {
+              ...week,
+              dailyPlans: {
+                ...week.dailyPlans,
+                [todayKey]: {
+                  ...dayPlan,
+                  events: updatedEvents
+                }
+              }
+            }
+          };
+        });
+      }
+    }
+
+    setActiveAlarm(null);
+  }, [activeAlarm, currentDate, currentWeek]);
+
+  const handleDismissAlarm = useCallback(() => {
+    setActiveAlarm(null);
   }, []);
 
   // Daily Morning Briefing trigger and handlers
@@ -773,6 +854,18 @@ export default function App() {
           weekDays={carryForwardWeekDays}
           onApply={handleCarryForwardApply}
           onDismiss={closeCarryForward}
+        />
+      )}
+
+      {activeAlarm && (
+        <AlarmMissionOverlay
+          alarmData={activeAlarm}
+          currentWeek={currentWeek}
+          todayDateKey={formatDateKey(currentDate)}
+          focusTheme={currentWeek.dailyPlans?.[formatDateKey(currentDate)]?.focusTheme || ''}
+          onToggleTodo={handleDashboardToggleTodo}
+          onSnooze={handleSnoozeAlarm}
+          onDismiss={handleDismissAlarm}
         />
       )}
     </div>

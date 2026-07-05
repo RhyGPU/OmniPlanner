@@ -40,6 +40,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   notificationSchedule: (id, title, body, scheduledAtMs) => ipcRenderer.invoke('notification:schedule', id, title, body, scheduledAtMs),
   notificationCancel: (id) => ipcRenderer.invoke('notification:cancel', id),
   notificationCancelAll: () => ipcRenderer.invoke('notification:cancel-all'),
+  notificationOnTrigger: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('alarm:trigger', handler);
+    return () => ipcRenderer.removeListener('alarm:trigger', handler);
+  },
+  updateCustomAlarms: (alarms) => ipcRenderer.invoke('alarms:update-custom', alarms),
   // Launch at login (opt-in)
   startupGet: () => ipcRenderer.invoke('startup:get'),
   startupSet: (enable) => ipcRenderer.invoke('startup:set', enable),

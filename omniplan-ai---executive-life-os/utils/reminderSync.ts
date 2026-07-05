@@ -78,6 +78,11 @@ export async function syncReminders(
     _syncFocusBlockReminder(settings, currentWeek, today),
     _syncEventDerivedAlarms(settings, currentWeek, today),
   ]);
+
+  // Synchronise custom alarms to the main process if on Electron
+  if (typeof window !== 'undefined' && window.electronAPI?.updateCustomAlarms) {
+    await window.electronAPI.updateCustomAlarms(settings.customAlarms || []);
+  }
 }
 
 // ---------------------------------------------------------------------------

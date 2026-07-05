@@ -256,7 +256,21 @@ export enum Tab {
 
 /**
  * User-configured local notification reminder settings.
- *
+ */
+export interface CustomAlarm {
+  id: string;
+  title: string;
+  hour: number;
+  minute: number;
+  enabled: boolean;
+  daysOfWeek: number[]; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  label?: string;
+  missionType?: 'none' | 'math' | 'checklist' | 'theme';
+  snoozeDuration: number; // in minutes (default 5)
+  fadeInDuration: number; // in seconds (default 0)
+}
+
+/**
  * Stored in non-sensitive storage (omni_notification_settings).
  * No credentials, no PII — only time preferences and enable flags.
  *
@@ -299,4 +313,7 @@ export interface NotificationSettings {
      */
     minutesBefore: number;
   };
+
+  /** Custom repeating/mission-linked alarms (v4.1) */
+  customAlarms?: CustomAlarm[];
 }
