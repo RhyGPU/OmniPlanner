@@ -126,22 +126,38 @@ export const AlarmsView: React.FC<AlarmsViewProps> = ({
                 <div className="text-[10px] text-slate-400">Review your day each morning</div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-600">
-                  {formatHour(notificationSettings.dailyPlannerReminder.hour + notificationSettings.dailyPlannerReminder.minute / 60)}
-                </span>
+                <input
+                  type="time"
+                  disabled={!isEnabled}
+                  value={`${notificationSettings.dailyPlannerReminder.hour.toString().padStart(2, '0')}:${notificationSettings.dailyPlannerReminder.minute.toString().padStart(2, '0')}`}
+                  onChange={(e) => {
+                    const parts = e.target.value.split(':');
+                    if (parts.length === 2) {
+                      updateSettings({
+                        dailyPlannerReminder: {
+                          ...notificationSettings.dailyPlannerReminder,
+                          hour: parseInt(parts[0], 10),
+                          minute: parseInt(parts[1], 10),
+                        },
+                      });
+                    }
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus:border-blue-500 disabled:opacity-50 transition-colors cursor-pointer"
+                />
                 <button
+                  disabled={!isEnabled}
                   onClick={() => updateSettings({
                     dailyPlannerReminder: {
                       ...notificationSettings.dailyPlannerReminder,
                       enabled: !notificationSettings.dailyPlannerReminder.enabled,
                     },
                   })}
-                  className={`w-10 h-6 rounded-full transition-colors relative ${
-                    notificationSettings.dailyPlannerReminder.enabled ? 'bg-emerald-500' : 'bg-slate-200'
+                  className={`w-10 h-6 rounded-full transition-colors relative disabled:opacity-50 ${
+                    notificationSettings.dailyPlannerReminder.enabled && isEnabled ? 'bg-emerald-500' : 'bg-slate-200'
                   }`}
                 >
                   <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
-                    notificationSettings.dailyPlannerReminder.enabled ? 'left-5' : 'left-1'
+                    notificationSettings.dailyPlannerReminder.enabled && isEnabled ? 'left-5' : 'left-1'
                   }`} />
                 </button>
               </div>
@@ -157,22 +173,38 @@ export const AlarmsView: React.FC<AlarmsViewProps> = ({
                 <div className="text-[10px] text-slate-400">Evening reminder to log habits</div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-600">
-                  {formatHour(notificationSettings.habitReminder.hour + notificationSettings.habitReminder.minute / 60)}
-                </span>
+                <input
+                  type="time"
+                  disabled={!isEnabled}
+                  value={`${notificationSettings.habitReminder.hour.toString().padStart(2, '0')}:${notificationSettings.habitReminder.minute.toString().padStart(2, '0')}`}
+                  onChange={(e) => {
+                    const parts = e.target.value.split(':');
+                    if (parts.length === 2) {
+                      updateSettings({
+                        habitReminder: {
+                          ...notificationSettings.habitReminder,
+                          hour: parseInt(parts[0], 10),
+                          minute: parseInt(parts[1], 10),
+                        },
+                      });
+                    }
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus:border-blue-500 disabled:opacity-50 transition-colors cursor-pointer"
+                />
                 <button
+                  disabled={!isEnabled}
                   onClick={() => updateSettings({
                     habitReminder: {
                       ...notificationSettings.habitReminder,
                       enabled: !notificationSettings.habitReminder.enabled,
                     },
                   })}
-                  className={`w-10 h-6 rounded-full transition-colors relative ${
-                    notificationSettings.habitReminder.enabled ? 'bg-emerald-500' : 'bg-slate-200'
+                  className={`w-10 h-6 rounded-full transition-colors relative disabled:opacity-50 ${
+                    notificationSettings.habitReminder.enabled && isEnabled ? 'bg-emerald-500' : 'bg-slate-200'
                   }`}
                 >
                   <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
-                    notificationSettings.habitReminder.enabled ? 'left-5' : 'left-1'
+                    notificationSettings.habitReminder.enabled && isEnabled ? 'left-5' : 'left-1'
                   }`} />
                 </button>
               </div>
@@ -183,25 +215,47 @@ export const AlarmsView: React.FC<AlarmsViewProps> = ({
               <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
                 <Zap size={16} className="text-blue-500" />
               </div>
-              <div className="flex-1">
-                <div className="text-xs font-bold text-slate-800">Focus Block Alert</div>
-                <div className="text-[10px] text-slate-400">
-                  {notificationSettings.focusBlockReminder.minutesBefore} min before each focus block
+              <div className="flex-1 flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-bold text-slate-800">Focus Block Alert</div>
+                  <div className="text-[10px] text-slate-400">
+                    Remind me before each focus block
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    disabled={!isEnabled}
+                    value={notificationSettings.focusBlockReminder.minutesBefore}
+                    onChange={(e) => updateSettings({
+                      focusBlockReminder: {
+                        ...notificationSettings.focusBlockReminder,
+                        minutesBefore: parseInt(e.target.value, 10),
+                      },
+                    })}
+                    className="bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-lg px-2 py-1 text-xs font-bold focus:outline-none focus:border-blue-500 disabled:opacity-50 transition-colors cursor-pointer"
+                  >
+                    <option value={0}>At start</option>
+                    <option value={5}>5 min before</option>
+                    <option value={10}>10 min before</option>
+                    <option value={15}>15 min before</option>
+                    <option value={30}>30 min before</option>
+                  </select>
                 </div>
               </div>
               <button
+                disabled={!isEnabled}
                 onClick={() => updateSettings({
                   focusBlockReminder: {
                     ...notificationSettings.focusBlockReminder,
                     enabled: !notificationSettings.focusBlockReminder.enabled,
                   },
                 })}
-                className={`w-10 h-6 rounded-full transition-colors relative ${
-                  notificationSettings.focusBlockReminder.enabled ? 'bg-emerald-500' : 'bg-slate-200'
+                className={`w-10 h-6 rounded-full transition-colors relative disabled:opacity-50 ${
+                  notificationSettings.focusBlockReminder.enabled && isEnabled ? 'bg-emerald-500' : 'bg-slate-200'
                 }`}
               >
                 <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${
-                  notificationSettings.focusBlockReminder.enabled ? 'left-5' : 'left-1'
+                  notificationSettings.focusBlockReminder.enabled && isEnabled ? 'left-5' : 'left-1'
                 }`} />
               </button>
             </div>

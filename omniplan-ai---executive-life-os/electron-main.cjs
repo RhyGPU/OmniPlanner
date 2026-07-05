@@ -317,11 +317,27 @@ ipcMain.handle('startup:set', (_event, enable) => {
 // ---------------------------------------------------------------------------
 
 function getTrayIcon() {
-  for (const candidate of [
+  const candidates = [
     path.join(__dirname, 'dist', 'favicon.ico'),
     path.join(__dirname, 'public', 'favicon.ico'),
-  ]) {
-    if (fs.existsSync(candidate)) return nativeImage.createFromPath(candidate);
+    path.join(__dirname, 'dist', 'icon-192.png'),
+    path.join(__dirname, 'public', 'icon-192.png'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      try {
+        const buffer = fs.readFileSync(candidate);
+        const img = nativeImage.createFromBuffer(buffer);
+        if (!img.isEmpty()) {
+          if (candidate.endsWith('.png')) {
+            return img.resize({ width: 16, height: 16 });
+          }
+          return img;
+        }
+      } catch (err) {
+        console.error(`[OmniPlan] Failed to load tray icon buffer from ${candidate}:`, err);
+      }
+    }
   }
   return nativeImage.createEmpty();
 }
@@ -627,8 +643,7 @@ async function checkForUpdates() {
 setTimeout(checkForUpdates, 30000);
 
 ipcMain.on('quit-app', () => {
-  isQuitting = true;
-  app.quit();
+  confirmQuit();
 });
 
 // Expose the auto-backup directory path to the renderer
