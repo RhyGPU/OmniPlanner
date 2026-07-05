@@ -9,12 +9,17 @@ export interface AiUsageStats {
 
 const STORAGE_KEY = LOCAL_STORAGE_KEYS.AI_USAGE_STATS;
 
-const TOKEN_PRICES: Record<string, { prompt: number; completion: number }> = {
-  gemini: { prompt: 0.075 / 1000000, completion: 0.30 / 1000000 },
-  openai: { prompt: 0.15 / 1000000, completion: 0.60 / 1000000 },
-  anthropic: { prompt: 3.0 / 1000000, completion: 15.0 / 1000000 },
-  openrouter: { prompt: 0, completion: 0 },
-  custom: { prompt: 0, completion: 0 },
+/**
+ * Rough pricing per 1M tokens (USD), keyed by model id — the model each
+ * provider module actually requests, not the provider name. Vendors change
+ * prices; treat the board as an estimate, not an invoice. Unknown models
+ * (OpenRouter free tiers, local llamafiles, custom endpoints) contribute $0
+ * so the estimate never overstates.
+ */
+const MODEL_PRICES_PER_MILLION: Record<string, { prompt: number; completion: number }> = {
+  'gemini-2.0-flash': { prompt: 0.10, completion: 0.40 },
+  'gpt-4o-mini': { prompt: 0.15, completion: 0.60 },
+  'claude-sonnet-4-20250514': { prompt: 3.0, completion: 15.0 },
 };
 
 export function getAiUsageStats(): AiUsageStats {
@@ -26,10 +31,10 @@ export function getAiUsageStats(): AiUsageStats {
   };
 }
 
-export function logAiCall(providerId: string, promptTokens: number, completionTokens: number): void {
+export function logAiCall(providerId: string, model: string, promptTokens: number, completionTokens: number): void {
   const current = getAiUsageStats();
-  const prices = TOKEN_PRICES[providerId] || { prompt: 0, completion: 0 };
-  const cost = (promptTokens * prices.prompt) + (completionTokens * prices.completion);
+  const prices = MODEL_PRICES_PER_MILLION[model] ?? { prompt: 0, completion: 0 };
+  const cost = (promptTokens * prices.prompt + completionTokens * prices.completion) / 1_000_000;
   
   const updated: AiUsageStats = {
     callsCount: current.callsCount + 1,

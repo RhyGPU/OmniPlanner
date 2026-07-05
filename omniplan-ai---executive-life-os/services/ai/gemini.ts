@@ -37,7 +37,7 @@ async function generateContent(
   if (usage) {
     const promptTokens = usage.promptTokenCount || 0;
     const completionTokens = usage.candidatesTokenCount || 0;
-    logAiCall('gemini', promptTokens, completionTokens);
+    logAiCall('gemini', model, promptTokens, completionTokens);
   }
 
   return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';

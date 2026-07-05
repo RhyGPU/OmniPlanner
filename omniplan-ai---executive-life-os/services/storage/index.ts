@@ -69,6 +69,9 @@ export const LOCAL_STORAGE_KEYS = {
   LAST_BRIEFING_DATE: 'omni_last_briefing_date',
   /** v4.0: set once the one-time launch-at-startup prompt has been answered. */
   STARTUP_PROMPT_DONE: 'omni_startup_prompt_done',
+  /** v4.0: week key (omni_week_YYYY-MM-DD) of the last week whose Monday
+   *  carry-forward ritual was shown. Prevents re-prompting within a week. */
+  CARRY_FORWARD_WEEK: 'omni_carry_forward_week',
 } as const;
 
 // ---------------------------------------------------------------------------

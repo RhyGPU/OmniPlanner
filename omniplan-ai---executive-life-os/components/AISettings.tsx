@@ -334,7 +334,9 @@ export const AISettings: React.FC = () => {
           <div className="mt-8 pt-8 border-t border-slate-100 space-y-4">
             <div>
               <h4 className="text-xs font-black text-slate-900 uppercase tracking-widest">AI Cost & Token Board</h4>
-              <p className="text-[10px] text-slate-400 font-bold mt-0.5">Real-time usage and estimated API cost metrics</p>
+              <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                Rough estimate from published per-model rates — vendor prices change; unknown/local models count as $0
+              </p>
             </div>
             
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

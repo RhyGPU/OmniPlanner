@@ -157,7 +157,11 @@ export interface Email {
 }
 
 export interface DailyPlan {
-  focus?: string; // Daily focus theme
+  focus?: string; // Daily focus field (weekly planner column)
+  /** v3.0: Morning Briefing focus theme — shown as the Dashboard banner.
+   *  Was previously written without being declared here (spread literals
+   *  bypass excess-property checks); declared now for type safety. */
+  focusTheme?: string;
   todos: Todo[];
   notes: string;
   events: CalendarEvent[];

@@ -8,6 +8,7 @@ import { electronFetch } from '../../utils/electronFetch';
 import { logAiCall } from './tokenLogger';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
 
 async function createMessage(apiKey: string, systemPrompt: string, userPrompt: string): Promise<string> {
   const response = await electronFetch(ANTHROPIC_API_URL, {
@@ -19,7 +20,7 @@ async function createMessage(apiKey: string, systemPrompt: string, userPrompt: s
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: ANTHROPIC_MODEL,
       max_tokens: 1024,
       system: systemPrompt,
       messages: [
@@ -37,7 +38,7 @@ async function createMessage(apiKey: string, systemPrompt: string, userPrompt: s
   
   const usage = data.usage;
   if (usage) {
-    logAiCall('anthropic', usage.input_tokens || 0, usage.output_tokens || 0);
+    logAiCall('anthropic', ANTHROPIC_MODEL, usage.input_tokens || 0, usage.output_tokens || 0);
   }
 
   const textBlock = data.content?.find((b: any) => b.type === 'text');

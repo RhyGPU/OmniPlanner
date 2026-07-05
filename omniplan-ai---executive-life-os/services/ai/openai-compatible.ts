@@ -50,7 +50,8 @@ async function chatCompletion(config: OpenAICompatibleConfig, systemPrompt: stri
   const usage = data.usage;
   if (usage) {
     const providerId = config.baseUrl.includes('openrouter') ? 'openrouter' : 'custom';
-    logAiCall(providerId, usage.prompt_tokens || 0, usage.completion_tokens || 0);
+    // Custom/OpenRouter models aren't in the pricing table → cost logged as $0.
+    logAiCall(providerId, config.model, usage.prompt_tokens || 0, usage.completion_tokens || 0);
   }
 
   return data.choices?.[0]?.message?.content?.trim() || '';

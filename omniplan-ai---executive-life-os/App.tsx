@@ -25,6 +25,14 @@ import type { StorageStatus } from './services/storage';
 import { getOnboardingDismissed, setOnboardingDismissed, hasPlannerData } from './services/storage/onboardingState';
 import { WelcomeCard } from './components/WelcomeCard';
 import { MorningBriefing } from './components/MorningBriefing';
+import { CarryForwardDialog } from './components/CarryForwardDialog';
+import {
+  getCarryForwardCandidates,
+  groupCandidatesByGoal,
+  buildCarriedTodo,
+  type CarryForwardGroup,
+  type CarryForwardDecision,
+} from './utils/carryForward';
 
 const INITIAL_EMAILS: Email[] = [
   { id: 1, provider: 'internal', sender: "OmniPlan Core", subject: "Executive System Ready", preview: "Your dashboard is ready...", body: "Welcome to OmniPlan!\n\nThis system is designed for high-performance scheduling. Your weekly planner, monthly overview, and life vision board are now active.\n\nUse the 'AI Optimize Week' feature to automatically generate focus themes based on your historical data and current tasks.\n\nBest,\nOmniPlan Team", time: "09:00 AM", read: false },
@@ -62,117 +70,137 @@ export default function App() {
   // Current week data (derived from allWeeks)
   const currentWeek = getOrCreateWeek(currentDate, allWeeks);
 
-  // Log an actual event (from Dashboard "Start"/"Skip"/"Done" buttons)
+  // Log an actual event (from Dashboard "Start"/"Skip"/"Done" buttons).
+  // NOTE: allWeeks is keyed by getWeekStorageKey (omni_week_YYYY-MM-DD) — the
+  // previous implementation indexed by the bare date and silently no-oped.
   const handleLogActual = useCallback((log: ActualEventLog) => {
     const logDate = new Date(log.dateKey + 'T00:00:00');
-    const logWeekDays = getWeekDays(logDate);
-    const logWeekStart = formatDateKey(logWeekDays[0]);
+    const weekKey = getWeekStorageKey(logDate);
 
     setAllWeeks(prev => {
-      const updated = { ...prev };
-      let week = updated[logWeekStart];
-      if (!week) return prev;
+      const week = prev[weekKey] ?? getOrCreateWeek(logDate, prev);
+      const dayPlan = week.dailyPlans[log.dateKey] ?? createEmptyDailyPlan();
+      const actuals = dayPlan.actuals ?? { events: [], habits: {} };
 
-      if (!week.dailyPlans[log.dateKey]) {
-        week.dailyPlans[log.dateKey] = { todos: [], notes: '', events: [] };
-      }
-      const dayPlan = week.dailyPlans[log.dateKey];
-      if (!dayPlan.actuals) {
-        dayPlan.actuals = { events: [], habits: {} };
-      }
-
-      const existingIdx = dayPlan.actuals.events.findIndex(
+      const events = [...actuals.events];
+      const existingIdx = events.findIndex(
         (a: ActualEventLog) => a.plannedEventId === log.plannedEventId && a.dateKey === log.dateKey
       );
       if (existingIdx >= 0) {
-        dayPlan.actuals.events[existingIdx] = log;
+        events[existingIdx] = log;
       } else {
-        dayPlan.actuals.events.push(log);
+        events.push(log);
       }
 
-      updated[logWeekStart] = { ...week };
-      return updated;
+      return {
+        ...prev,
+        [weekKey]: {
+          ...week,
+          dailyPlans: {
+            ...week.dailyPlans,
+            [log.dateKey]: { ...dayPlan, actuals: { ...actuals, events } },
+          },
+          updatedAt: Date.now(),
+        },
+      };
     });
   }, []);
 
   // Toggle habit completion from Dashboard
   const handleCompleteHabit = useCallback((habitId: string) => {
     const dateKey = formatDateKey(new Date());
+    const weekKey = getWeekStorageKey(currentDate);
     setAllWeeks(prev => {
-      const updated = { ...prev };
-      const weekDates = getWeekDays(currentDate);
-      const weekStart = formatDateKey(weekDates[0]);
-      const week = updated[weekStart];
-      if (!week) return prev;
+      const week = prev[weekKey] ?? getOrCreateWeek(currentDate, prev);
 
       const habit = week.habits.find(h => h.id === habitId);
       if (!habit) return prev;
 
-      const wasCompleted = habit.completions[dateKey];
-      habit.completions = { ...habit.completions, [dateKey]: !wasCompleted };
-      habit.lastUsedAt = Date.now();
+      const wasCompleted = !!habit.completions[dateKey];
+      const habits = week.habits.map(h =>
+        h.id === habitId
+          ? { ...h, completions: { ...h.completions, [dateKey]: !wasCompleted }, lastUsedAt: Date.now() }
+          : h
+      );
 
-      if (!week.dailyPlans[dateKey]) {
-        week.dailyPlans[dateKey] = { todos: [], notes: '', events: [] };
-      }
-      const dayPlan = week.dailyPlans[dateKey];
-      if (!dayPlan.actuals) {
-        dayPlan.actuals = { events: [], habits: {} };
-      }
-      dayPlan.actuals.habits[habitId] = !wasCompleted;
+      const dayPlan = week.dailyPlans[dateKey] ?? createEmptyDailyPlan();
+      const actuals = dayPlan.actuals ?? { events: [], habits: {} };
 
-      updated[weekStart] = { ...week };
-      return updated;
+      return {
+        ...prev,
+        [weekKey]: {
+          ...week,
+          habits,
+          dailyPlans: {
+            ...week.dailyPlans,
+            [dateKey]: {
+              ...dayPlan,
+              actuals: { ...actuals, habits: { ...actuals.habits, [habitId]: !wasCompleted } },
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      };
     });
   }, [currentDate]);
 
   // Toggle todo completion from Dashboard
   const handleDashboardToggleTodo = useCallback((dateKey: string, todoId: string) => {
     const date = new Date(dateKey + 'T00:00:00');
-    const weekDates = getWeekDays(date);
-    const weekStart = formatDateKey(weekDates[0]);
+    const weekKey = getWeekStorageKey(date);
     setAllWeeks(prev => {
-      const updated = { ...prev };
-      const week = updated[weekStart];
+      const week = prev[weekKey];
       if (!week) return prev;
       const dayPlan = week.dailyPlans?.[dateKey];
       if (!dayPlan) return prev;
-      dayPlan.todos = dayPlan.todos.map(t =>
-        t.id === todoId ? { ...t, done: !t.done } : t
-      );
-      updated[weekStart] = { ...week };
-      return updated;
+      return {
+        ...prev,
+        [weekKey]: {
+          ...week,
+          dailyPlans: {
+            ...week.dailyPlans,
+            [dateKey]: {
+              ...dayPlan,
+              todos: dayPlan.todos.map(t => (t.id === todoId ? { ...t, done: !t.done } : t)),
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      };
     });
   }, []);
 
   // Add new todo from Dashboard (to today)
   const handleDashboardAddTodo = useCallback((todo: Todo, dateKey: string) => {
     const date = new Date(dateKey + 'T00:00:00');
-    const weekDates = getWeekDays(date);
-    const weekStart = formatDateKey(weekDates[0]);
+    const weekKey = getWeekStorageKey(date);
     setAllWeeks(prev => {
-      const updated = { ...prev };
-      const week = updated[weekStart] || currentWeek;
-      if (!week.dailyPlans[dateKey]) {
-        week.dailyPlans[dateKey] = { todos: [], notes: '', events: [] };
-      }
-      week.dailyPlans[dateKey].todos.push(todo);
-      updated[weekStart] = { ...week };
-      return updated;
+      const week = prev[weekKey] ?? getOrCreateWeek(date, prev);
+      const dayPlan = week.dailyPlans[dateKey] ?? createEmptyDailyPlan();
+      return {
+        ...prev,
+        [weekKey]: {
+          ...week,
+          dailyPlans: {
+            ...week.dailyPlans,
+            [dateKey]: { ...dayPlan, todos: [...dayPlan.todos, todo] },
+          },
+          updatedAt: Date.now(),
+        },
+      };
     });
-  }, [currentWeek]);
+  }, []);
 
   // Add new habit from Dashboard
   const handleDashboardAddHabit = useCallback((habit: Habit) => {
+    const weekKey = getWeekStorageKey(currentDate);
     setAllWeeks(prev => {
-      const updated = { ...prev };
-      const weekDates = getWeekDays(currentDate);
-      const weekStart = formatDateKey(weekDates[0]);
-      const week = updated[weekStart];
-      if (!week) return prev;
-      week.habits.push(habit);
-      updated[weekStart] = { ...week };
-      return updated;
+      const week = prev[weekKey] ?? getOrCreateWeek(currentDate, prev);
+      if (week.habits.some(h => h.id === habit.id)) return prev;
+      return {
+        ...prev,
+        [weekKey]: { ...week, habits: [...week.habits, habit], updatedAt: Date.now() },
+      };
     });
   }, [currentDate]);
 
@@ -270,6 +298,66 @@ export default function App() {
     }
   }, [currentDate]);
 
+  // Monday carry-forward ritual — on the first launch of a new week, surface
+  // last week's unfinished GOAL-LINKED todos (unlinked todos stay week-isolated
+  // by design). Anchored to the real current week, not the viewed week.
+  // Runs once per week: LOCAL_STORAGE_KEYS.CARRY_FORWARD_WEEK stores the week
+  // key it last ran for. Shown before the Morning Briefing.
+  const [carryForwardGroups, setCarryForwardGroups] = useState<CarryForwardGroup[] | null>(null);
+  useEffect(() => {
+    const today = new Date();
+    const thisWeekKey = getWeekStorageKey(today);
+    if (storage.get<string>(LOCAL_STORAGE_KEYS.CARRY_FORWARD_WEEK) === thisWeekKey) return;
+    const prevDate = new Date(today);
+    prevDate.setDate(prevDate.getDate() - 7);
+    const prevWeek = allWeeks[getWeekStorageKey(prevDate)];
+    const candidates = getCarryForwardCandidates(prevWeek);
+    if (candidates.length === 0) {
+      // Nothing to decide — mark the week done so we don't re-scan every launch.
+      storage.set(LOCAL_STORAGE_KEYS.CARRY_FORWARD_WEEK, thisWeekKey);
+      return;
+    }
+    setCarryForwardGroups(groupCandidatesByGoal(candidates, goalItems));
+    // Startup snapshot only — allWeeks/goalItems changes after mount must not re-trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const closeCarryForward = useCallback(() => {
+    storage.set(LOCAL_STORAGE_KEYS.CARRY_FORWARD_WEEK, getWeekStorageKey(new Date()));
+    setCarryForwardGroups(null);
+  }, []);
+
+  const handleCarryForwardApply = useCallback((decisions: CarryForwardDecision[]) => {
+    const today = new Date();
+    const weekKey = getWeekStorageKey(today);
+    const mondayKey = formatDateKey(getWeekDays(today)[0]);
+    setAllWeeks(prev => {
+      const week = prev[weekKey] ?? getOrCreateWeek(today, prev);
+      let dailyPlans = week.dailyPlans;
+      let changed = false;
+      for (const decision of decisions) {
+        if (decision.action === 'drop') continue;
+        const targetKey = decision.action === 'carry' ? mondayKey : decision.action.rescheduleTo;
+        const plan = dailyPlans[targetKey] ?? createEmptyDailyPlan();
+        dailyPlans = {
+          ...dailyPlans,
+          [targetKey]: { ...plan, todos: [...plan.todos, buildCarriedTodo(decision.candidate.todo)] },
+        };
+        changed = true;
+      }
+      if (!changed) return prev;
+      return { ...prev, [weekKey]: { ...week, dailyPlans, updatedAt: Date.now() } };
+    });
+    closeCarryForward();
+  }, [closeCarryForward]);
+
+  const carryForwardWeekDays = useMemo(() => {
+    return getWeekDays(new Date()).map(d => ({
+      dateKey: formatDateKey(d),
+      label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }),
+    }));
+  }, []);
+
   // One-time launch-at-startup prompt (desktop only). Opt-in per plan:
   // never enabled silently — the user answers once, changeable later in
   // Settings & Data → Notifications.
@@ -294,18 +382,18 @@ export default function App() {
 
   const handleSetFocusTheme = useCallback((dateKey: string, theme: string) => {
     const date = new Date(dateKey + 'T00:00:00');
-    const weekDates = getWeekDays(date);
-    const weekStart = formatDateKey(weekDates[0]);
+    const weekKey = getWeekStorageKey(date);
     setAllWeeks(prev => {
-      const updated = { ...prev };
-      const week = updated[weekStart];
-      if (!week) return prev;
-      if (!week.dailyPlans[dateKey]) {
-        week.dailyPlans[dateKey] = { todos: [], notes: '', events: [] };
-      }
-      week.dailyPlans[dateKey].focusTheme = theme;
-      updated[weekStart] = { ...week };
-      return updated;
+      const week = prev[weekKey] ?? getOrCreateWeek(date, prev);
+      const dayPlan = week.dailyPlans[dateKey] ?? createEmptyDailyPlan();
+      return {
+        ...prev,
+        [weekKey]: {
+          ...week,
+          dailyPlans: { ...week.dailyPlans, [dateKey]: { ...dayPlan, focusTheme: theme } },
+          updatedAt: Date.now(),
+        },
+      };
     });
   }, []);
 
@@ -668,12 +756,23 @@ export default function App() {
         />
       )}
 
-      {showMorningBrief && (
+      {/* Carry-forward ritual takes precedence over the Morning Briefing so
+          the week's first decision happens before the day's first one. */}
+      {showMorningBrief && !carryForwardGroups && (
         <MorningBriefing
           currentWeek={currentWeek}
           today={currentDate}
           onSetFocusTheme={handleSetFocusTheme}
           onDismiss={handleDismissMorningBrief}
+        />
+      )}
+
+      {carryForwardGroups && (
+        <CarryForwardDialog
+          groups={carryForwardGroups}
+          weekDays={carryForwardWeekDays}
+          onApply={handleCarryForwardApply}
+          onDismiss={closeCarryForward}
         />
       )}
     </div>

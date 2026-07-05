@@ -8,6 +8,7 @@ import { electronFetch } from '../../utils/electronFetch';
 import { logAiCall } from './tokenLogger';
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_MODEL = 'gpt-4o-mini';
 
 async function chatCompletion(apiKey: string, systemPrompt: string, userPrompt: string): Promise<string> {
   const response = await electronFetch(OPENAI_API_URL, {
@@ -17,7 +18,7 @@ async function chatCompletion(apiKey: string, systemPrompt: string, userPrompt: 
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: OPENAI_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -35,7 +36,7 @@ async function chatCompletion(apiKey: string, systemPrompt: string, userPrompt: 
   
   const usage = data.usage;
   if (usage) {
-    logAiCall('openai', usage.prompt_tokens || 0, usage.completion_tokens || 0);
+    logAiCall('openai', OPENAI_MODEL, usage.prompt_tokens || 0, usage.completion_tokens || 0);
   }
 
   return data.choices?.[0]?.message?.content?.trim() || '';
