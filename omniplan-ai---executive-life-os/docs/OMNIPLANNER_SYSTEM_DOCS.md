@@ -1,6 +1,71 @@
-# OmniPlanner — Consolidated System Documentation (v3.0, v3.1 & v3.2)
+# OmniPlanner — Consolidated System Documentation (v3.0 – v4.0)
 
 This document contains a consolidated history of all strategic evaluations, architecture blueprints, implementation plans, and walkthrough logs for OmniPlanner.
+
+---
+
+## 🚨 Phase v4.0: The All-In-One Cockpit — Working Desktop Alarms & Carry-Forward
+
+**Founding-thesis correction**: OmniPlanner exists because no good app combines
+**alarms + weekly planner + todos + email in one always-open app**. v4.0 makes the
+alarm pillar real on the primary platform (Windows desktop), where it had been
+silently non-functional: Electron was wired to `nullNotifications` (no toast ever
+fired) and closing the window quit the app.
+
+### 1. Main-Process Notifications & Alarm Engine
+*   `app.setAppUserModelId('com.omniplan.app')` — required for Windows toasts.
+*   IPC: `notification:show / schedule / cancel / cancel-all / is-supported` in
+    [electron-main.cjs](../electron-main.cjs). Timers live in the **main process**:
+    they survive renderer reloads and fire while the window is hidden.
+*   Persistence: alarms are written to `userData/scheduled-alarms.json` (mode 0600),
+    restored and re-armed on startup. `powerMonitor.on('resume')` re-arms after
+    sleep; alarms missed by <10 minutes fire late, older ones are dropped as stale.
+*   Renderer adapter `electronNotifications` replaces `nullNotifications` in
+    [services/platform/index.ts](../services/platform/index.ts); the notification
+    settings panel is now fully enabled on desktop.
+
+### 2. System Tray & Close-to-Tray Shell
+*   Tray menu: **Open OmniPlanner · Pause Alarms (checkbox) · Quit** (with a
+    confirmation dialog warning that alarms and background checks stop).
+*   The window **X hides to tray** instead of quitting (`isQuitting` flag pattern);
+    `window-all-closed` no longer quits while the tray exists. A one-time toast
+    explains the behavior on first hide.
+
+### 3. Launch at Login (opt-in)
+*   IPC `startup:get/set` wraps `app.setLoginItemSettings`.
+*   One-time first-launch prompt (ConfirmDialog in App.tsx) + a persistent toggle in
+    **Settings & Data → Notifications**. Never enabled silently.
+
+### 4. Monday Carry-Forward Ritual
+*   On the first launch of each new week, [CarryForwardDialog.tsx](../components/CarryForwardDialog.tsx)
+    lists the previous week's **unfinished goal-linked todos**, grouped by parent goal,
+    with per-item **Carry → Monday / Move → day / Drop** plus bulk actions.
+    Unlinked todos never appear — week isolation stays the rule for them.
+*   Pure domain logic in [utils/carryForward.ts](../utils/carryForward.ts);
+    once-per-week flag `omni_carry_forward_week`. Shown before the Morning Briefing.
+
+### 5. Dashboard Week-Key Bug Fix (critical)
+*   `allWeeks` is keyed by `omni_week_YYYY-MM-DD`, but six handlers
+    (log actual, toggle/add todo, complete/add habit, set focus theme) indexed it
+    by the bare date — every Dashboard Start/Skip/todo/habit action silently
+    no-oped, and Add Todo wrote a phantom week under the wrong key. All six now
+    use `getWeekStorageKey` + `getOrCreateWeek` with immutable updates.
+
+### 6. Housekeeping
+*   `models/` (multi-GB llamafiles) and design archives gitignored; 5.8 GB of
+    orphaned git objects from an aborted `git add` pruned.
+*   Model-keyed AI pricing (unknown/local models = $0; board labeled an estimate).
+*   `focusTheme` declared on `DailyPlan`; stray storage keys registered in
+    `LOCAL_STORAGE_KEYS`; version aligned to **4.0.0**.
+
+### v4.0 Verification
+*   All 138 Vitest tests pass; `tsc --noEmit` clean; production build clean.
+*   Carry-forward verified end-to-end in the web preview: carry lands on Monday
+    with the goal link intact, reschedule lands on the chosen day, dropped items
+    stay untouched in the previous week, ritual re-arms next week.
+*   Alarm/tray flows require the packaged desktop app: close window → tray icon
+    persists → Pulse alarm fires a Windows toast → reopen from tray → quit via
+    tray menu shows confirmation.
 
 ---
 

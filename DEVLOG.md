@@ -80,7 +80,19 @@ Reminder visibility with inline indicators. 138 tests across 7 files. OAuth toke
 
 ---
 
-## Current: Dashboard, Alarms, and the Plan-vs-Actual Gap (May 2026)
+## v4.0: The Cockpit Becomes Real (Jul 2026)
+
+**Tags:** `Working Desktop Alarms` `System Tray` `Launch at Login` `Carry-Forward Ritual` `Week-Key Bug Fix`
+
+The founding thesis, finally stated out loud: OmniPlanner exists because nothing good combines **alarms + planner + todos + email in one always-open app**. v4.0 makes the alarm pillar real — before this release, Electron was wired to `nullNotifications` (no desktop toast ever fired) and closing the window killed the app.
+
+Now: alarm timers live in the **main process**, persisted to disk, re-armed on startup and wake-from-sleep. The X button hides to a **system tray** (Open / Pause Alarms / Quit-with-confirmation). **Launch at login** is an opt-in prompt. The notification settings panel, Pulse tab, and alarm rules — all built earlier — finally reach the OS.
+
+Also shipped: the **Monday carry-forward ritual** (last week's unfinished goal-linked todos get a Carry / Move / Drop decision, unlinked todos stay week-isolated), and a critical fix — six Dashboard handlers indexed `allWeeks` by the wrong key, so Start/Skip logging and quick todo/habit actions had been silently doing nothing.
+
+---
+
+## Dashboard, Alarms, and the Plan-vs-Actual Gap (May 2026)
 
 **Tags:** `Dashboard` `Event Start/Skip/Snooze` `Pulse Tab` `Alarm Rules` `Sleep Tracking` `Priority Stars` `Undo Toast` `Auto-backup` `Window State` `Auto-update` `Storage Recovery`
 

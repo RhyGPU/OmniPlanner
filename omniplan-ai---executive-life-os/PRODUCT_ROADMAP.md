@@ -1,23 +1,41 @@
 # OmniPlanner — Product Roadmap
 
+> **Founding thesis (the all-in-one cockpit)**: OmniPlanner exists because no
+> good app combines **alarms, weekly planner, to-do list, and email in one
+> always-open app**. The integration IS the product. Each pillar's quality bar:
+> good enough that you never open the dedicated app (phone clock, Todoist,
+> Gmail tab) for day-to-day use.
+>
 > **Philosophy**: Privacy-first, calm, local-first, open-source, free core.
 > AI is optional and user-controlled. No dark patterns. No invasive telemetry.
-> The core product is planning: life goals → weekly execution → calendar → focus.
+> The planning spine: life goals → weekly execution → calendar → focus → actuals → review.
 
 ---
 
-## Current State (v2.1)
+## Current State (v4.0 — July 2026)
 
-OmniPlanner is a functional TypeScript/React/Vite/Electron desktop planner with:
+OmniPlanner is a TypeScript/React/Vite/Electron desktop app (with Capacitor
+mobile and PWA shells) comprising:
 
-- **Week-isolated planner**: each week is an independent data unit (source of truth: `allWeeks`)
-- **Habit tracking**: cross-week streaks, soft-delete, 112-point milestone gamification
-- **Multi-provider AI**: Gemini, OpenAI, Anthropic, OpenRouter, local, or none
-- **Life goals**: 10/5/3/1-year goal hierarchy (text only, not yet linked to weekly execution)
-- **Calendar**: daily time-blocked events, repeating event inheritance, ICS import
-- **Backup/restore**: JSON export/import with legacy migration
-- **Email view**: prototype IMAP integration (Electron only, AI-assisted event extraction)
-- **Platforms**: Electron desktop (Windows/macOS/Linux)
+- **Week-isolated planner**: each week is an independent data unit (source of truth: `allWeeks`,
+  keyed `omni_week_YYYY-MM-DD`); premium card UI, sub-divided event checklists
+- **Carry-forward ritual (v4.0)**: unfinished goal-linked todos surface once per new week
+  for Carry / Move / Drop; unlinked todos stay week-isolated by design
+- **Desktop alarms (v4.0)**: main-process notification timers persisted to disk, re-armed on
+  startup and wake-from-sleep; system tray with close-to-tray; opt-in launch at login
+- **Dashboard + Pulse**: priority-ranked events with Start/Skip/Snooze actuals logging,
+  alarm rules, sleep tracking, morning briefing
+- **Plan-vs-actual**: actuals overlay on the weekly grid (dashed planned vs solid actual)
+- **Habit tracking**: cross-week streaks, soft-delete, milestone gamification
+- **Multi-provider AI**: Gemini, OpenAI, Anthropic, OpenRouter, local llamafile hosting,
+  Ollama/LM Studio presets, token/cost board — or none
+- **Life goals**: structured GoalItem hierarchy (10Y→weekly) linked to weekly execution
+- **Calendar**: daily time-blocked events, repeating inheritance, ICS import
+- **Email**: IMAP with MIME parsing, sandboxed rich HTML view, AI event extraction
+  (Electron only; OAuth planned — see Phase 5 below)
+- **Storage**: file-system adapter on desktop (no 5 MB cap), IndexedDB on web,
+  versioned migrations, auto-backup on quit with rotation
+- **Security**: credentials in OS keychains (safeStorage / iOS Keychain / Android Keystore)
 
 ---
 
@@ -58,7 +76,7 @@ migration registry. Zero user-visible changes. Lays groundwork for every subsequ
 
 ---
 
-### Phase 2 — Life Goals Domain Model
+### Phase 2 — Life Goals Domain Model ✅ (v3.0)
 **Goal**: Link life goals to weekly execution. Goals are currently unstructured text areas.
 
 **Deliverables**:
@@ -72,7 +90,7 @@ migration registry. Zero user-visible changes. Lays groundwork for every subsequ
 
 ---
 
-### Phase 3 — Cross-Platform Shell Migration
+### Phase 3 — Cross-Platform Shell Migration ✅ (v3.0, Phases 8–11)
 **Goal**: Prepare for web/PWA and mobile without abandoning desktop.
 
 **Deliverables**:
@@ -89,40 +107,59 @@ routed through user-controlled local proxy.
 
 ---
 
-### Phase 4 — Reminders and Focus Sessions
+### Phase 4 — Reminders and Focus Sessions ✅ (v3.0–v4.0)
 **Goal**: Close the gap between planning and execution with lightweight focus support.
 
-**Deliverables**:
-- Focus session timer (Pomodoro or custom) — local only, no tracking
-- Desktop notifications via Electron (opt-in)
-- Daily start-of-day prompt: show today's focus, top todos, habit check
-- Gentle end-of-day review: habit completion summary
+**Delivered**:
+- [x] Focus session timer (Pomodoro, 25/50m presets) — local only, no tracking
+- [x] Desktop notifications via Electron main-process timers (v4.0) — persisted,
+      re-armed on wake, fire while hidden to tray; launch-at-login opt-in
+- [x] Daily start-of-day prompt: Morning Briefing (habits, top actions, focus theme)
+- [x] Weekly review sidebar with execution analytics
 - No push server, no account, no telemetry
 
 ---
 
-### Phase 5 — Mail-Aware Scheduling (Minimal)
-**Goal**: Let email surface actionable calendar items without becoming an email client.
+### Phase 5 — Mail-Aware Scheduling (NEXT UP)
+**Goal**: Make the email pillar reliable enough to replace Gmail-tab triage —
+per the all-in-one thesis, email is a first-class pillar, but the planner must
+never depend on it.
 
 **Deliverables**:
-- "Extract event from email" flow remains AI-assisted
-- OAuth-based Gmail/Outlook integration (replaces IMAP password)
-- Email stays a secondary feature — planner does not depend on it
+- "Extract event from email" flow remains AI-assisted ✅ (shipped)
+- OAuth-based Gmail/Outlook integration (replaces IMAP password) — requires
+  registering OAuth client IDs with Google/Microsoft
+- Background new-mail desktop notifications via the v4.0 tray infrastructure
+- Planner never depends on email being configured
 - `omni_email_accounts.password` deprecated; migration to OAuth tokens documented
 
 **Out of scope**: email compose, threading, search, full inbox management
 
 ---
 
-### Phase 6 — AI Polish
+### Phase 6 — AI Polish (partially shipped in v3.1)
 **Goal**: Make AI assistance more useful while keeping it strictly optional.
 
 **Deliverables**:
 - Improve focus prediction: use habit completion rates + goal timeframe + historical notes
 - Goal-aware scheduling: AI suggests weekly goal breakdown from 1-year goals
-- Local model support: first-class Ollama/LM Studio experience
-- AI usage summary (tokens used, provider, cost estimate) — transparency for user
+- [x] Local model support: llamafile hosting + Ollama/LM Studio presets (v3.1)
+- [x] AI usage summary (tokens, per-model cost estimate) — transparency for user (v3.1)
 - AI is still 100% opt-in; all features degrade gracefully to manual input
+
+---
+
+### Phase 7 — Distribution & Multi-Device Sync (future)
+**Goal**: Ship a packaged installer and let the phone act as the alarm/todo
+satellite to the desktop cockpit — without a server.
+
+**Deliverables**:
+- Packaged Windows installer via existing electron-builder config (`npm run dist:win`),
+  replacing the run.bat + Node.js friction
+- Sync-file approach: full state exported to a user-chosen folder
+  (Dropbox / OneDrive / Syncthing); newer-state merge on startup,
+  last-write-wins per week key; CRDT merge later if needed
+- No cloud service, no account — the sync transport is the user's own storage
 
 ---
 
@@ -130,7 +167,9 @@ routed through user-controlled local proxy.
 
 `MAJOR.MINOR` — major = breaking data format change with migration, minor = additive.
 
-Current: **v2.1** → Phase 1 target: **v2.2** → Phase 2 target: **v3.0** (new GoalItem format)
+History: v2.1 → v2.2 (storage hardening) → v3.0 (GoalItem format, platform shells)
+→ v3.1 (local AI) → v3.2 (planner UI) → **v4.0 (current: working desktop alarms,
+tray shell, carry-forward ritual)**
 
 ---
 
