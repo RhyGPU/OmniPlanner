@@ -55,8 +55,13 @@ fired) and closing the window quit the app.
 *   `models/` (multi-GB llamafiles) and design archives gitignored; 5.8 GB of
     orphaned git objects from an aborted `git add` pruned.
 *   Model-keyed AI pricing (unknown/local models = $0; board labeled an estimate).
-*   `focusTheme` declared on `DailyPlan`; stray storage keys registered in
-    `LOCAL_STORAGE_KEYS`; version aligned to **4.0.0**.
+*   `focusTheme` declared on `DailyPlan` ([types.ts](../types.ts) line 164) — was being
+    written via spread literals in 3 components without a type declaration. Spread
+    literals bypass TypeScript's excess-property check, which is why it compiled
+    silently. **Watch for this class of type hole**: any `{ ...obj, undeclaredProp: val }`
+    pattern will accept undeclared properties without error.
+*   Stray storage keys (`omni_ai_usage_stats`, `omni_last_briefing_date`) registered
+    in `LOCAL_STORAGE_KEYS`; version aligned to **4.0.0**.
 
 ### v4.0 Verification
 *   All 138 Vitest tests pass; `tsc --noEmit` clean; production build clean.
@@ -163,12 +168,23 @@ OmniPlanner (also referred to as **OmniPlan AI** or **Executive Life OS**) is bu
 
 ---
 
-## 🧪 Part 4: Verification & Testing
-*   **Automated Tests**: All 138 Vitest unit tests pass successfully.
-*   **Compilation**: Production bundle builds successfully with zero lint or bundling errors.
-*   **Models**: Local `.exe` llamafiles copied to the `models/` directory are fully discoverable and controllable from Settings.
-*   **Grid Cards**: Daily focus and todos are wrapped in cards with shadows, preventing Friday overlap.
-*   **Sub-Events Checklist**: Sub-events persist correctly and checkoff states update calendar actuals interactively.
-*   **Grid Logic**: Click coordinates map precisely to the correct target hour slot across the full 24-hour container.
-*   **Moment Filtering**: Dashboard upcoming list only presents events scheduled after the current hour of the current day. Maximum 3 events displayed.
+## 📋 Phase v4.1 Backlog: UI Polish
 
+Design-review findings captured to prevent loss:
+*   **Micro-label floor**: Raise 9px labels to an **11px minimum** — unreadable on high-DPI, fails WCAG at that size.
+*   **Dark mode**: An always-open evening app needs a dark theme. All-white surfaces cause eye strain during late planning.
+*   **44×44px touch targets**: Before the Capacitor mobile build matters, all interactive elements must meet minimum touch target.
+*   **"ENTERPRISE EDITION" badge**: Replace or remove — it's a placeholder that undercuts credibility.
+
+---
+
+## 🧑‍💻 Manual Verification Checklist — Packaged App (Phase 1 Gate)
+
+Until this passes on the developer's machine, Phase 1 stays "code-verified" not "done done":
+
+1. Build with `npm run start` (or `npm run dist:win` for NSIS installer)
+2. Close window → confirm tray icon appears → confirm app in Task Manager → confirm gone from taskbar
+3. Set Pulse alarm ~2 min out → close window → confirm Windows toast fires
+4. Double-click tray icon → confirm window restores and focuses
+5. Tray → Quit OmniPlanner → confirm confirmation dialog → confirm full exit
+6. (Opt-in) Enable startup in Settings → reboot → confirm auto-launch + tray icon
