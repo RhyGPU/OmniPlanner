@@ -268,6 +268,7 @@ export interface CustomAlarm {
   missionType?: 'none' | 'math' | 'checklist' | 'theme';
   snoozeDuration: number; // in minutes (default 5)
   fadeInDuration: number; // in seconds (default 0)
+  soundPreset?: 'chime' | 'beep' | 'pulse' | 'gentle' | 'custom';
 }
 
 /**
@@ -316,4 +317,8 @@ export interface NotificationSettings {
 
   /** Custom repeating/mission-linked alarms (v4.1) */
   customAlarms?: CustomAlarm[];
+
+  /** Custom personal alarm sound properties (v4.2) */
+  customSoundData?: string; // base64 representation of imported mp3/wav
+  customSoundName?: string; // filename displayed in settings
 }

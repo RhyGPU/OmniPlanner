@@ -298,7 +298,25 @@ export default function App() {
     missionType: 'none' | 'math' | 'checklist' | 'theme';
     snoozeDuration: number;
     fadeInDuration: number;
+    soundPreset?: 'chime' | 'beep' | 'pulse' | 'gentle' | 'custom';
   } | null>(null);
+
+  // Lifted Pomodoro Timer Shared State (v4.2)
+  const [pomMode, setPomMode] = useState<'focus' | 'break'>('focus');
+  const [pomDuration, setPomDuration] = useState(25 * 60);
+  const [pomTimeLeft, setPomTimeLeft] = useState(25 * 60);
+  const [pomIsRunning, setPomIsRunning] = useState(false);
+
+  const pomodoroProps = useMemo(() => ({
+    mode: pomMode,
+    setMode: setPomMode,
+    duration: pomDuration,
+    setDuration: setPomDuration,
+    timeLeft: pomTimeLeft,
+    setTimeLeft: setPomTimeLeft,
+    isRunning: pomIsRunning,
+    setIsRunning: setPomIsRunning
+  }), [pomMode, pomDuration, pomTimeLeft, pomIsRunning]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && window.electronAPI?.notificationOnTrigger) {
@@ -754,6 +772,7 @@ export default function App() {
         onZoomOut={handleZoomOut}
         onZoomReset={handleZoomReset}
         onLogActual={handleLogActual}
+        pomodoroProps={pomodoroProps}
       />
 
       <main className="flex-1 flex flex-col p-2 md:p-4 bg-slate-100 min-w-0 h-screen overflow-hidden">
@@ -781,6 +800,8 @@ export default function App() {
                 notificationSettings={notificationSettings}
                 onNotificationSettingsChange={handleNotificationSettingsChange}
                 currentWeek={currentWeek}
+                onLogActual={handleLogActual}
+                pomodoroProps={pomodoroProps}
               />
             )}
             {activeTab === Tab.Inbox && <EmailView emails={emails} setEmails={setEmails} allWeeks={allWeeks} onAddEvent={addEventFromEmail} />}
@@ -866,6 +887,7 @@ export default function App() {
           onToggleTodo={handleDashboardToggleTodo}
           onSnooze={handleSnoozeAlarm}
           onDismiss={handleDismissAlarm}
+          customSoundData={notificationSettings.customSoundData}
         />
       )}
     </div>

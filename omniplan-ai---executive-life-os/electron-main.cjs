@@ -190,7 +190,7 @@ const alarmsFilePath = () => path.join(app.getPath('userData'), 'scheduled-alarm
 
 function persistAlarms() {
   try {
-    const entries = [...scheduledAlarms.values()].map(({ id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, hour, minute, daysOfWeek }) => ({
+    const entries = [...scheduledAlarms.values()].map(({ id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, soundPreset, hour, minute, daysOfWeek }) => ({
       id,
       title,
       body,
@@ -198,6 +198,7 @@ function persistAlarms() {
       missionType,
       snoozeDuration,
       fadeInDuration,
+      soundPreset,
       hour,
       minute,
       daysOfWeek
@@ -264,7 +265,8 @@ function fireAlarm(id) {
       body: alarm.body,
       missionType: alarm.missionType || 'none',
       snoozeDuration: alarm.snoozeDuration || 5,
-      fadeInDuration: alarm.fadeInDuration || 0
+      fadeInDuration: alarm.fadeInDuration || 0,
+      soundPreset: alarm.soundPreset || 'chime'
     });
   }
 
@@ -279,6 +281,7 @@ function fireAlarm(id) {
       alarm.missionType,
       alarm.snoozeDuration,
       alarm.fadeInDuration,
+      alarm.soundPreset || 'chime',
       alarm.hour,
       alarm.minute,
       alarm.daysOfWeek
@@ -312,7 +315,7 @@ function armAlarmTimer(alarm) {
   }, Math.min(delay, MAX_TIMEOUT_MS));
 }
 
-function scheduleAlarmExt(id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, hour, minute, daysOfWeek) {
+function scheduleAlarmExt(id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, soundPreset, hour, minute, daysOfWeek) {
   const existing = scheduledAlarms.get(id);
   if (existing?.timer) clearTimeout(existing.timer);
   const alarm = {
@@ -323,6 +326,7 @@ function scheduleAlarmExt(id, title, body, scheduledAtMs, missionType, snoozeDur
     missionType: missionType || 'none',
     snoozeDuration: snoozeDuration || 5,
     fadeInDuration: fadeInDuration || 0,
+    soundPreset: soundPreset || 'chime',
     hour,
     minute,
     daysOfWeek,
@@ -335,7 +339,7 @@ function scheduleAlarmExt(id, title, body, scheduledAtMs, missionType, snoozeDur
 }
 
 function scheduleAlarm(id, title, body, scheduledAtMs) {
-  return scheduleAlarmExt(id, title, body, scheduledAtMs, 'none', 5, 0);
+  return scheduleAlarmExt(id, title, body, scheduledAtMs, 'none', 5, 0, 'chime');
 }
 
 function cancelAlarm(id) {
@@ -359,7 +363,7 @@ function restoreAlarms() {
     if (!fs.existsSync(alarmsFilePath())) return;
     const entries = JSON.parse(fs.readFileSync(alarmsFilePath(), 'utf-8'));
     for (const entry of entries) {
-      const { id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, hour, minute, daysOfWeek } = entry;
+      const { id, title, body, scheduledAtMs, missionType, snoozeDuration, fadeInDuration, soundPreset, hour, minute, daysOfWeek } = entry;
       if (!id || typeof scheduledAtMs !== 'number') continue;
       const alarm = {
         id,
@@ -369,6 +373,7 @@ function restoreAlarms() {
         missionType: missionType || 'none',
         snoozeDuration: snoozeDuration || 5,
         fadeInDuration: fadeInDuration || 0,
+        soundPreset: soundPreset || 'chime',
         hour,
         minute,
         daysOfWeek,
@@ -409,6 +414,7 @@ ipcMain.handle('alarms:update-custom', (_event, customAlarms) => {
         customAlarm.missionType,
         customAlarm.snoozeDuration,
         customAlarm.fadeInDuration,
+        customAlarm.soundPreset || 'chime',
         customAlarm.hour,
         customAlarm.minute,
         customAlarm.daysOfWeek

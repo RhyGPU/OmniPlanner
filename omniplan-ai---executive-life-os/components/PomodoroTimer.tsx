@@ -5,6 +5,14 @@ import { formatDateKey } from '../constants';
 
 interface PomodoroTimerProps {
   onLogActual: (log: ActualEventLog) => void;
+  mode: TimerMode;
+  setMode: (mode: TimerMode) => void;
+  duration: number;
+  setDuration: (dur: number) => void;
+  timeLeft: number;
+  setTimeLeft: React.Dispatch<React.SetStateAction<number>>;
+  isRunning: boolean;
+  setIsRunning: (run: boolean) => void;
 }
 
 type TimerMode = 'focus' | 'break';
@@ -14,25 +22,25 @@ function playChime() {
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContext) return;
     const ctx = new AudioContext();
-    
+
     // Play a friendly two-tone rising chime (A5 -> E6)
     const playTone = (freq: number, start: number, duration: number) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      
+
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, start);
-      
+
       gain.gain.setValueAtTime(0.08, start);
       gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-      
+
       osc.connect(gain);
       gain.connect(ctx.destination);
-      
+
       osc.start(start);
       osc.stop(start + duration);
     };
-    
+
     const now = ctx.currentTime;
     playTone(880, now, 0.3); // A5
     playTone(1320, now + 0.15, 0.4); // E6
@@ -41,11 +49,17 @@ function playChime() {
   }
 }
 
-export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({ onLogActual }) => {
-  const [mode, setMode] = useState<TimerMode>('focus');
-  const [duration, setDuration] = useState(25 * 60); // default 25 minutes
-  const [timeLeft, setTimeLeft] = useState(25 * 60);
-  const [isRunning, setIsRunning] = useState(false);
+export const PomodoroTimer: React.FC<PomodoroTimerProps> = ({
+  onLogActual,
+  mode,
+  setMode,
+  duration,
+  setDuration,
+  timeLeft,
+  setTimeLeft,
+  isRunning,
+  setIsRunning,
+}) => {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {

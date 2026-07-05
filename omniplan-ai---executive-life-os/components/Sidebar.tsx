@@ -14,6 +14,16 @@ interface SidebarProps {
   onZoomOut: () => void;
   onZoomReset: () => void;
   onLogActual: (log: ActualEventLog) => void;
+  pomodoroProps: {
+    mode: 'focus' | 'break';
+    setMode: (mode: 'focus' | 'break') => void;
+    duration: number;
+    setDuration: (dur: number) => void;
+    timeLeft: number;
+    setTimeLeft: React.Dispatch<React.SetStateAction<number>>;
+    isRunning: boolean;
+    setIsRunning: (run: boolean) => void;
+  };
 }
 
 const NavButton = ({ id, icon, label, count, activeTab, setActiveTab }: {
@@ -42,7 +52,7 @@ const NavButton = ({ id, icon, label, count, activeTab, setActiveTab }: {
   </button>
 );
 
-export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setActiveTab, onQuickSave, zoomPercent, onZoomIn, onZoomOut, onZoomReset, onLogActual }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setActiveTab, onQuickSave, zoomPercent, onZoomIn, onZoomOut, onZoomReset, onLogActual, pomodoroProps }) => {
   return (
     <div className="w-20 md:w-64 bg-slate-900 text-white flex flex-col h-full flex-shrink-0 transition-all duration-300 z-20 border-r border-slate-800">
       <div className="p-6 flex items-center justify-center md:justify-start gap-3">
@@ -77,7 +87,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ emailsCount, activeTab, setAct
 
       <div className="p-4 border-t border-slate-800 hidden md:block space-y-4">
         {/* Pomodoro Timer */}
-        <PomodoroTimer onLogActual={onLogActual} />
+        <PomodoroTimer onLogActual={onLogActual} {...pomodoroProps} />
 
         <div className="border-t border-slate-800/80 my-2" />
 

@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Bell, ShieldAlert, Check, RefreshCw, Volume2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bell, Check } from 'lucide-react';
 import type { WeekData } from '../types';
+import { playAlarmSound, stopAlarmSound } from '../utils/soundSynth';
 
 interface AlarmMissionOverlayProps {
   alarmData: {
@@ -10,6 +11,7 @@ interface AlarmMissionOverlayProps {
     missionType: 'none' | 'math' | 'checklist' | 'theme';
     snoozeDuration: number;
     fadeInDuration: number;
+    soundPreset?: 'chime' | 'beep' | 'pulse' | 'gentle' | 'custom';
   };
   currentWeek: WeekData;
   todayDateKey: string;
@@ -17,6 +19,7 @@ interface AlarmMissionOverlayProps {
   onToggleTodo: (dateKey: string, todoId: string) => void;
   onSnooze: (snoozeMinutes: number) => void;
   onDismiss: () => void;
+  customSoundData?: string;
 }
 
 export const AlarmMissionOverlay: React.FC<AlarmMissionOverlayProps> = ({
@@ -27,13 +30,9 @@ export const AlarmMissionOverlay: React.FC<AlarmMissionOverlayProps> = ({
   onToggleTodo,
   onSnooze,
   onDismiss,
+  customSoundData,
 }) => {
-  const { title, body, missionType, snoozeDuration, fadeInDuration } = alarmData;
-
-  // Sound Synth Ref
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const chimeIntervalRef = useRef<any>(null);
-  const startTimeRef = useRef<number>(Date.now());
+  const { title, body, missionType, snoozeDuration, fadeInDuration, soundPreset } = alarmData;
 
   // Mission State
   const [missionComplete, setMissionComplete] = useState(false);
@@ -54,55 +53,9 @@ export const AlarmMissionOverlay: React.FC<AlarmMissionOverlayProps> = ({
   // Count how many items were completed since the alarm started
   const [completedCount, setCompletedCount] = useState(0);
 
-  // Helper to play synthesized chimes with fade-in volume escalation
-  const playTone = (ctx: AudioContext, freq: number, start: number, duration: number, volume: number) => {
-    try {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, start);
-      
-      gain.gain.setValueAtTime(volume, start);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-      
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      
-      osc.start(start);
-      osc.stop(start + duration);
-    } catch (_) {}
-  };
-
-  const playChime = () => {
-    if (!audioCtxRef.current) return;
-    const ctx = audioCtxRef.current;
-    
-    // Calculate volume escalation based on fade-in time
-    const elapsedSeconds = (Date.now() - startTimeRef.current) / 1000;
-    let volume = 0.12; // Max target volume multiplier
-    if (fadeInDuration > 0 && elapsedSeconds < fadeInDuration) {
-      // Linear interpolation from 0.01 to 0.12
-      volume = 0.01 + (0.11 * (elapsedSeconds / fadeInDuration));
-    }
-
-    const now = ctx.currentTime;
-    playTone(ctx, 880, now, 0.25, volume); // A5
-    playTone(ctx, 1320, now + 0.12, 0.35, volume); // E6
-  };
-
-  // Start alarm audio on mount
+  // Start alarm audio on mount using unified soundSynth
   useEffect(() => {
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        audioCtxRef.current = new AudioCtx();
-        // Play once immediately
-        playChime();
-        // Repeat chime every 2.2 seconds
-        chimeIntervalRef.current = setInterval(playChime, 2200);
-      }
-    } catch (_) {}
+    playAlarmSound(soundPreset || 'chime', customSoundData, fadeInDuration);
 
     // Initialize Missions
     if (missionType === 'none') {
@@ -115,12 +68,9 @@ export const AlarmMissionOverlay: React.FC<AlarmMissionOverlayProps> = ({
     }
 
     return () => {
-      if (chimeIntervalRef.current) clearInterval(chimeIntervalRef.current);
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close().catch(() => {});
-      }
+      stopAlarmSound();
     };
-  }, [missionType, focusTheme]);
+  }, [missionType, focusTheme, soundPreset, customSoundData, fadeInDuration]);
 
   // Math equation generator
   const generateNewEquation = () => {
