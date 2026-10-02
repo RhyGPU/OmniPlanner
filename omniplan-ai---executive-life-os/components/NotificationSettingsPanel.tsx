@@ -9,8 +9,7 @@
  *   - Web (PWA):          Best-effort — shown with a caveat that notifications
  *                         only fire while the tab is open.
  *   - Electron (desktop): Full support (v4.0+) — main-process timers that keep
- *                         firing while the window is hidden to the tray. Also
- *                         hosts the launch-at-startup toggle.
+ *                         firing while the window is hidden to the tray.
  *
  * STATE OWNERSHIP:
  *   This component is stateless with respect to notification settings —
@@ -18,8 +17,8 @@
  *   notification state in App.tsx where it can drive the syncReminders() effect.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
-import { Bell, BellOff, BellRing, Smartphone, Monitor, Globe, Shield, Power } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Bell, BellOff, BellRing, Smartphone, Monitor, Globe, Shield } from 'lucide-react';
 import type { NotificationSettings } from '../types';
 import { platform, isElectron, isCapacitor } from '../services/platform';
 import { requestNotificationPermission } from '../utils/notificationScheduler';
@@ -102,62 +101,6 @@ function PlatformBanner(): React.ReactElement {
           They only fire while this tab is open. For reliable mobile reminders,
           use the native iOS / Android app.
         </p>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Launch-at-startup toggle (Electron only)
-// ---------------------------------------------------------------------------
-
-function StartupToggle(): React.ReactElement | null {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (!isElectron() || !window.electronAPI?.startupGet) return;
-    window.electronAPI.startupGet().then(setEnabled).catch(() => setEnabled(null));
-  }, []);
-
-  if (!isElectron() || enabled === null) return null;
-
-  const handleToggle = async () => {
-    const next = !enabled;
-    setEnabled(next); // optimistic
-    try {
-      const actual = await window.electronAPI!.startupSet(next);
-      setEnabled(actual);
-    } catch {
-      setEnabled(!next);
-    }
-  };
-
-  return (
-    <div className={`flex items-center gap-2 md:gap-4 py-3 px-3 md:px-4 rounded-2xl transition-colors ${
-      enabled ? 'bg-emerald-50' : 'bg-slate-50'
-    }`}>
-      <button
-        onClick={handleToggle}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 cursor-pointer ${
-          enabled ? 'bg-emerald-600' : 'bg-slate-300'
-        }`}
-      >
-        <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-            enabled ? 'translate-x-6' : 'translate-x-1'
-          }`}
-        />
-      </button>
-      <div className="flex items-center gap-2 flex-1">
-        <Power size={14} className={enabled ? 'text-emerald-600' : 'text-slate-400'} />
-        <div>
-          <span className={`text-sm font-bold block ${enabled ? 'text-slate-900' : 'text-slate-400'}`}>
-            Launch OmniPlanner at login
-          </span>
-          <span className="text-xs text-slate-400">
-            Recommended so alarms fire after a restart without opening the app manually.
-          </span>
-        </div>
       </div>
     </div>
   );
@@ -347,13 +290,6 @@ export const NotificationSettingsPanel: React.FC<NotificationSettingsPanelProps>
       {!isDesktop && (
         <div className="mb-6">
           <PermissionButton onGranted={() => update({ enabled: true })} />
-        </div>
-      )}
-
-      {/* Launch at startup (desktop only) */}
-      {isDesktop && (
-        <div className="mb-6">
-          <StartupToggle />
         </div>
       )}
 

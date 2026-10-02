@@ -67,7 +67,8 @@ export const LOCAL_STORAGE_KEYS = {
   AI_USAGE_STATS: 'omni_ai_usage_stats',
   /** v3.0: date key (YYYY-MM-DD) of the last shown Morning Briefing. */
   LAST_BRIEFING_DATE: 'omni_last_briefing_date',
-  /** v4.0: set once the one-time launch-at-startup prompt has been answered. */
+  /** v4.0: set once the one-time launch-at-startup prompt has been answered.
+   *  Kept for backward compatibility; the prompt/feature was removed. */
   STARTUP_PROMPT_DONE: 'omni_startup_prompt_done',
   /** v4.0: week key (omni_week_YYYY-MM-DD) of the last week whose Monday
    *  carry-forward ritual was shown. Prevents re-prompting within a week. */

@@ -46,7 +46,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('alarm:trigger', handler);
   },
   updateCustomAlarms: (alarms) => ipcRenderer.invoke('alarms:update-custom', alarms),
-  // Launch at login (opt-in)
-  startupGet: () => ipcRenderer.invoke('startup:get'),
-  startupSet: (enable) => ipcRenderer.invoke('startup:set', enable),
 });

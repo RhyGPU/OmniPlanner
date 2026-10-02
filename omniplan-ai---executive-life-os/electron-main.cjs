@@ -428,16 +428,6 @@ ipcMain.handle('alarms:update-custom', (_event, customAlarms) => {
 });
 
 // ---------------------------------------------------------------------------
-// Launch at startup (opt-in via first-launch prompt / settings toggle)
-// ---------------------------------------------------------------------------
-
-ipcMain.handle('startup:get', () => app.getLoginItemSettings().openAtLogin);
-ipcMain.handle('startup:set', (_event, enable) => {
-  app.setLoginItemSettings({ openAtLogin: !!enable });
-  return app.getLoginItemSettings().openAtLogin;
-});
-
-// ---------------------------------------------------------------------------
 // System tray — keeps the app (and its alarms) alive when the window closes
 // ---------------------------------------------------------------------------
 
@@ -657,6 +647,14 @@ function notifyHiddenToTrayOnce() {
 }
 
 app.whenReady().then(() => {
+  // Clear any previously registered launch-at-login entry. Auto-start on boot
+  // was removed; existing installs may still have openAtLogin enabled.
+  try {
+    if (app.getLoginItemSettings().openAtLogin) {
+      app.setLoginItemSettings({ openAtLogin: false });
+    }
+  } catch (_) { /* best-effort */ }
+
   createWindow();
   createTray();
   restoreAlarms();
