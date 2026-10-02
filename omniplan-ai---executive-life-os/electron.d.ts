@@ -131,12 +131,6 @@ declare global {
 
       /** Send the list of custom alarms to the main process for scheduling. */
       updateCustomAlarms(alarms: any[]): Promise<boolean>;
-
-      /** True when the app is registered to launch at login. */
-      startupGet(): Promise<boolean>;
-
-      /** Enable/disable launch at login. Returns the resulting state. */
-      startupSet(enable: boolean): Promise<boolean>;
     };
   }
 }
